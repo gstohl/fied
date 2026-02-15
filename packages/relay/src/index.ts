@@ -242,41 +242,6 @@ export default {
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
-    const shareRoute = url.pathname.match(/^\/s\/([A-Za-z0-9]{1,64})$/);
-    if (request.method === "GET" && shareRoute) {
-      const sessionId = shareRoute[1];
-      return html(`<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>fied session ${sessionId}</title>
-</head>
-<body>
-  <main>
-    <h1>fied session ${sessionId}</h1>
-  </main>
-  <script src="/client.js"></script>
-</body>
-</html>`);
-    }
-
-    if (request.method === "GET" && url.pathname === "/") {
-      return html(`<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>fied</title>
-</head>
-<body>
-  <main>
-    <h1>fied - encrypted terminal sharing</h1>
-  </main>
-</body>
-</html>`);
-    }
-
     return text("not found", 404);
   },
 };
