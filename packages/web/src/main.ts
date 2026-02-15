@@ -7,6 +7,7 @@ const terminalContainer = document.getElementById("terminal-container")!;
 const errorView = document.getElementById("error-view")!;
 const copyCommandButton = document.getElementById("copy-cmd") as HTMLDivElement | null;
 const mobileKeybar = document.getElementById("mobile-keybar") as HTMLDivElement | null;
+const mobileKeybarToggle = document.getElementById("mobile-keybar-toggle") as HTMLButtonElement | null;
 const outputDecoder = new TextDecoder();
 
 function showError(title: string, detail: string): void {
@@ -123,6 +124,7 @@ function setupMobileKeybar(
   sendInput: (input: string) => void,
 ): void {
   if (!mobileKeybar) return;
+  if (!mobileKeybarToggle) return;
 
   const isTouch = window.matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
   if (!isTouch) return;
@@ -131,6 +133,7 @@ function setupMobileKeybar(
   const ctrlButton = mobileKeybar.querySelector('[data-action="ctrl"]') as HTMLButtonElement | null;
 
   let ctrlArmed = false;
+  let keybarEnabled = false;
 
   const setCtrlArmed = (armed: boolean) => {
     ctrlArmed = armed;
@@ -153,9 +156,11 @@ function setupMobileKeybar(
       : 0;
     mobileKeybar.style.bottom = `${occludedBottom}px`;
 
-    const shouldShow = likelyKeyboardVisible() || container.contains(document.activeElement);
+    const shouldShow = keybarEnabled && (likelyKeyboardVisible() || container.contains(document.activeElement));
     mobileKeybar.classList.toggle("visible", shouldShow);
     mobileKeybar.setAttribute("aria-hidden", shouldShow ? "false" : "true");
+    mobileKeybarToggle.classList.toggle("active", keybarEnabled);
+    mobileKeybarToggle.setAttribute("aria-pressed", keybarEnabled ? "true" : "false");
   };
 
   const applyCtrl = (input: string): string => {
@@ -172,6 +177,15 @@ function setupMobileKeybar(
       }
     }
     return input;
+  };
+
+  const decodeDataInput = (input: string): string => {
+    return input
+      .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)))
+      .replace(/\\t/g, "\t")
+      .replace(/\\r/g, "\r")
+      .replace(/\\n/g, "\n")
+      .replace(/\\\\/g, "\\");
   };
 
   const sendFromBar = (rawInput: string) => {
@@ -206,12 +220,24 @@ function setupMobileKeybar(
         return;
       }
 
-      const rawInput = button.getAttribute("data-input");
-      if (!rawInput) return;
-      sendFromBar(rawInput);
+      const rawInputAttr = button.getAttribute("data-input");
+      if (!rawInputAttr) return;
+      sendFromBar(decodeDataInput(rawInputAttr));
       updateVisibility();
     });
   }
+
+  mobileKeybarToggle.addEventListener("click", () => {
+    keybarEnabled = !keybarEnabled;
+    if (!keybarEnabled) {
+      setCtrlArmed(false);
+      if (extraRow) {
+        extraRow.hidden = true;
+      }
+    }
+    terminal.focus();
+    updateVisibility();
+  });
 
   window.addEventListener("resize", updateVisibility);
   window.visualViewport?.addEventListener("resize", updateVisibility);

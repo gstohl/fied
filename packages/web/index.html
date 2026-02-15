@@ -71,6 +71,80 @@
       }
       #error-view .error-title { color: #e55; font-weight: 600; }
       #error-view .error-detail { max-width: 420px; line-height: 1.6; }
+      #mobile-keybar { display: none; }
+      #mobile-keybar-toggle { display: none; }
+      @media (pointer: coarse) {
+        #mobile-keybar-toggle {
+          display: inline-flex;
+          position: fixed;
+          top: calc(10px + env(safe-area-inset-top));
+          right: 10px;
+          z-index: 40;
+          width: 34px;
+          height: 34px;
+          align-items: center;
+          justify-content: center;
+          border: 1px solid #2a2a2a;
+          border-radius: 999px;
+          background: rgba(12, 12, 12, 0.9);
+          color: #b6b6b6;
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+        }
+        #mobile-keybar-toggle svg {
+          width: 16px;
+          height: 16px;
+          fill: none;
+          stroke: currentColor;
+          stroke-width: 2;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+        #mobile-keybar-toggle.active {
+          color: #7dcfff;
+          border-color: #2f5770;
+          background: rgba(15, 24, 32, 0.92);
+        }
+        #mobile-keybar {
+          position: fixed;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 30;
+          padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+          background: rgba(9, 9, 9, 0.94);
+          border-top: 1px solid #222;
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+        }
+        #mobile-keybar.visible { display: block; }
+        #mobile-keybar .mobile-row {
+          display: flex;
+          gap: 6px;
+          overflow-x: auto;
+          scrollbar-width: none;
+          -webkit-overflow-scrolling: touch;
+        }
+        #mobile-keybar .mobile-row::-webkit-scrollbar { display: none; }
+        #mobile-keybar .mobile-row.extra { margin-top: 6px; }
+        #mobile-keybar .mobile-row.extra[hidden] { display: none; }
+        #mobile-keybar button {
+          border: 1px solid #2a2a2a;
+          background: #151515;
+          color: #d5d5d5;
+          min-width: 42px;
+          height: 34px;
+          border-radius: 7px;
+          padding: 0 10px;
+          font: 600 13px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        }
+        #mobile-keybar button:active { background: #232323; }
+        #mobile-keybar button.active {
+          color: #7dcfff;
+          border-color: #2f5770;
+          background: #0f1820;
+        }
+      }
     </style>
   </head>
   <body>
@@ -106,6 +180,30 @@
       </div>
     </div>
     <div id="terminal-container"></div>
+    <button id="mobile-keybar-toggle" type="button" aria-pressed="false" aria-label="Toggle mobile keybar">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M1.5 12s4-6.5 10.5-6.5S22.5 12 22.5 12 18.5 18.5 12 18.5 1.5 12 1.5 12z"/>
+        <circle cx="12" cy="12" r="3.5"/>
+      </svg>
+    </button>
+    <div id="mobile-keybar" aria-hidden="true">
+      <div class="mobile-row">
+        <button type="button" data-action="ctrl" aria-pressed="false">Ctrl</button>
+        <button type="button" data-input="\u001b">Esc</button>
+        <button type="button" data-input="\t">Tab</button>
+        <button type="button" data-input="\u001b[D">←</button>
+        <button type="button" data-input="\u001b[A">↑</button>
+        <button type="button" data-input="\u001b[B">↓</button>
+        <button type="button" data-input="\u001b[C">→</button>
+        <button type="button" data-action="toggle-extra">…</button>
+      </div>
+      <div class="mobile-row extra" hidden>
+        <button type="button" data-input="\u001b">Alt</button>
+        <button type="button" data-input="\u001b[5~">PgUp</button>
+        <button type="button" data-input="\u001b[6~">PgDn</button>
+        <button type="button" data-input="|">|</button>
+      </div>
+    </div>
     <div id="error-view">
       <div class="error-title"></div>
       <div class="error-detail"></div>
