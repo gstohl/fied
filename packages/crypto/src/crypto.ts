@@ -65,11 +65,16 @@ export function generateIV(): Uint8Array {
  */
 export async function encrypt(
   key: CryptoKey,
-  plaintext: Uint8Array
+  plaintext: Uint8Array,
+  additionalData?: Uint8Array,
 ): Promise<{ iv: Uint8Array; ciphertext: Uint8Array }> {
   const iv = generateIV();
+  const algorithm: AesGcmParams = { name: ALGORITHM, iv: iv as BufferSource };
+  if (additionalData) {
+    algorithm.additionalData = additionalData as BufferSource;
+  }
   const encrypted = await getSubtleCrypto().encrypt(
-    { name: ALGORITHM, iv: iv as BufferSource },
+    algorithm,
     key,
     plaintext as BufferSource
   );
@@ -83,10 +88,15 @@ export async function encrypt(
 export async function decrypt(
   key: CryptoKey,
   iv: Uint8Array,
-  ciphertext: Uint8Array
+  ciphertext: Uint8Array,
+  additionalData?: Uint8Array,
 ): Promise<Uint8Array> {
+  const algorithm: AesGcmParams = { name: ALGORITHM, iv: iv as BufferSource };
+  if (additionalData) {
+    algorithm.additionalData = additionalData as BufferSource;
+  }
   const decrypted = await getSubtleCrypto().decrypt(
-    { name: ALGORITHM, iv: iv as BufferSource },
+    algorithm,
     key,
     ciphertext as BufferSource
   );

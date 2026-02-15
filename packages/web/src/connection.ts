@@ -18,6 +18,10 @@ const RESIZE_MAX_ROWS = 300;
 const MAX_INVALID_RESIZE_FRAMES = 5;
 const MAX_PROTOCOL_ERRORS = 8;
 
+function typeAAD(type: number): Uint8Array {
+  return new Uint8Array([type & 0xff]);
+}
+
 export type ConnectionState = "connecting" | "connected" | "disconnected";
 
 export interface ConnectionCallbacks {
@@ -105,8 +109,8 @@ export class Connection {
   async sendInput(data: string): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.key) return;
 
-    const plaintext = this.encoder.encode(data);
-    const { iv, ciphertext } = await encrypt(this.key, plaintext);
+    const payload = this.encoder.encode(JSON.stringify({ nonce: crypto.randomUUID(), data }));
+    const { iv, ciphertext } = await encrypt(this.key, payload, typeAAD(MSG_TERMINAL_INPUT));
     const frame = frameMessage(MSG_TERMINAL_INPUT, iv, ciphertext);
     this.ws.send(frame.buffer);
   }
@@ -115,8 +119,8 @@ export class Connection {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.key) return;
     if (!isValidResize(cols, rows)) return;
 
-    const payload = this.encoder.encode(JSON.stringify({ cols, rows }));
-    const { iv, ciphertext } = await encrypt(this.key, payload);
+    const payload = this.encoder.encode(JSON.stringify({ nonce: crypto.randomUUID(), cols, rows }));
+    const { iv, ciphertext } = await encrypt(this.key, payload, typeAAD(MSG_RESIZE));
     const frame = frameMessage(MSG_RESIZE, iv, ciphertext);
     this.ws.send(frame.buffer);
   }
@@ -129,13 +133,13 @@ export class Connection {
 
       switch (frame.type) {
         case MSG_TERMINAL_OUTPUT: {
-          const plaintext = await decrypt(this.key, frame.iv, frame.ciphertext);
+          const plaintext = await decrypt(this.key, frame.iv, frame.ciphertext, typeAAD(frame.type));
           this.callbacks.onTerminalOutput(plaintext);
           break;
         }
 
         case MSG_RESIZE: {
-          const plaintext = await decrypt(this.key, frame.iv, frame.ciphertext);
+          const plaintext = await decrypt(this.key, frame.iv, frame.ciphertext, typeAAD(frame.type));
           const resize = parseResizePayload(this.decoder.decode(plaintext));
           if (!resize) {
             this.invalidResizeFrames += 1;

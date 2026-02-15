@@ -25,6 +25,8 @@ const RESIZE_MAX_COLS = 1000;
 const RESIZE_MIN_ROWS = 5;
 const RESIZE_MAX_ROWS = 300;
 const MAX_INVALID_RESIZE_FRAMES = 5;
+const MAX_INVALID_INPUT_FRAMES = 5;
+const MAX_RECENT_INPUT_NONCES = 2048;
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30_000;
@@ -97,10 +99,14 @@ export async function share(options: FiedOptions): Promise<void> {
 
   const onUrl = (url: string) => {
     if (options.background) {
+      const sessionId = bridge.getSessionId();
+      if (!sessionId) {
+        throw new Error("missing session id for background mode");
+      }
       addSession({
         pid: process.pid,
         tmuxSession: targetSession,
-        url,
+        sessionId,
         relay: relayTarget.httpBase.toString(),
         startedAt: new Date().toISOString(),
       });
@@ -187,6 +193,10 @@ async function createSession(relayHttpBase: URL): Promise<string> {
 
 const WS_CONNECT_TIMEOUT_MS = 10_000;
 
+function typeAAD(type: number): Uint8Array {
+  return new Uint8Array([type & 0xff]);
+}
+
 class RelayBridge {
   private ws: WebSocket | null = null;
   private destroyed = false;
@@ -198,6 +208,9 @@ class RelayBridge {
   private sessionId: string | null = null;
   private onUrl: ((url: string) => void | Promise<void>) | null = null;
   private invalidResizeFrames = 0;
+  private invalidInputFrames = 0;
+  private seenInputNonces = new Set<string>();
+  private inputNonceOrder: string[] = [];
 
   constructor(
     private relayTarget: RelayTarget,
@@ -213,6 +226,10 @@ class RelayBridge {
         this.sendEncrypted(MSG_TERMINAL_OUTPUT, this.encoder.encode(data));
       }
     });
+  }
+
+  getSessionId(): string | null {
+    return this.sessionId;
   }
 
   async connect(onUrl?: (url: string) => void | Promise<void>): Promise<void> {
@@ -282,10 +299,21 @@ class RelayBridge {
         const frame = parseFrame(data);
 
         if (frame.type === MSG_TERMINAL_INPUT) {
-          const plaintext = await decrypt(this.key, frame.iv, frame.ciphertext);
-          this.pty.write(this.decoder.decode(plaintext));
+          const plaintext = await decrypt(this.key, frame.iv, frame.ciphertext, typeAAD(frame.type));
+          const input = parseInputPayload(this.decoder.decode(plaintext));
+          if (!input || this.isReplayNonce(input.nonce)) {
+            this.invalidInputFrames += 1;
+            if (this.invalidInputFrames >= MAX_INVALID_INPUT_FRAMES) {
+              ws.close(1008, "invalid input frames");
+            }
+            return;
+          }
+
+          this.invalidInputFrames = 0;
+          this.rememberInputNonce(input.nonce);
+          this.pty.write(input.data);
         } else if (frame.type === MSG_RESIZE) {
-          const plaintext = await decrypt(this.key, frame.iv, frame.ciphertext);
+          const plaintext = await decrypt(this.key, frame.iv, frame.ciphertext, typeAAD(frame.type));
           const resize = parseResizePayload(this.decoder.decode(plaintext));
           if (!resize) {
             this.invalidResizeFrames += 1;
@@ -351,7 +379,7 @@ class RelayBridge {
   private async sendEncrypted(type: number, plaintext: Uint8Array): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     try {
-      const { iv, ciphertext } = await encrypt(this.key, plaintext);
+      const { iv, ciphertext } = await encrypt(this.key, plaintext, typeAAD(type));
       const frame = frameMessage(type, iv, ciphertext);
       this.ws.send(frame);
     } catch (err) {
@@ -361,6 +389,39 @@ class RelayBridge {
       }
     }
   }
+
+  private isReplayNonce(nonce: string): boolean {
+    return this.seenInputNonces.has(nonce);
+  }
+
+  private rememberInputNonce(nonce: string): void {
+    this.seenInputNonces.add(nonce);
+    this.inputNonceOrder.push(nonce);
+
+    while (this.inputNonceOrder.length > MAX_RECENT_INPUT_NONCES) {
+      const dropped = this.inputNonceOrder.shift();
+      if (!dropped) break;
+      this.seenInputNonces.delete(dropped);
+    }
+  }
+}
+
+function parseInputPayload(payload: string): { nonce: string; data: string } | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== "object") return null;
+  const typed = parsed as { nonce?: unknown; data?: unknown };
+  if (typeof typed.nonce !== "string" || typed.nonce.length < 8 || typed.nonce.length > 64) {
+    return null;
+  }
+  if (typeof typed.data !== "string") return null;
+
+  return { nonce: typed.nonce, data: typed.data };
 }
 
 function parseResizePayload(payload: string): { cols: number; rows: number } | null {
@@ -372,7 +433,8 @@ function parseResizePayload(payload: string): { cols: number; rows: number } | n
   }
 
   if (!parsed || typeof parsed !== "object") return null;
-  const typed = parsed as { cols?: unknown; rows?: unknown };
+  const typed = parsed as { nonce?: unknown; cols?: unknown; rows?: unknown };
+  if (typeof typed.nonce !== "string" || typed.nonce.length < 8 || typed.nonce.length > 64) return null;
   if (!Number.isInteger(typed.cols) || !Number.isInteger(typed.rows)) return null;
 
   const cols = typed.cols as number;

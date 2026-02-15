@@ -86,7 +86,8 @@ async function main(): Promise<void> {
       const s = active[i];
       const age = timeSince(new Date(s.startedAt));
       console.error(`    \x1b[36m${i + 1}\x1b[0m) \x1b[1m${s.tmuxSession}\x1b[0m  ${age} ago`);
-      console.error(`       \x1b[4m\x1b[36m${s.url}\x1b[0m`);
+      console.error(`       relay: ${s.relay}`);
+      console.error(`       session: ${s.sessionId}`);
     }
 
     const action = await pickManageAction(active.length);
