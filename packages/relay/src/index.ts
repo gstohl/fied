@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 
 interface Env {
   SESSION: DurableObjectNamespace<Session>;
+  ASSETS: Fetcher;
 }
 
 type Role = "host" | "viewer";
@@ -242,6 +243,6 @@ export default {
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
-    return text("not found", 404);
+    return env.ASSETS.fetch(request);
   },
 };
