@@ -60,9 +60,11 @@ async function main(): Promise<void> {
 
   terminalContainer.style.display = "block";
 
+  let transformTerminalInput = (input: string) => input;
+
   const { terminal, fitAddon } = createTerminal(
     terminalContainer,
-    (data) => connection.sendInput(data),
+    (data) => connection.sendInput(transformTerminalInput(data)),
     (cols, rows) => connection.sendResize(cols, rows),
   );
 
@@ -102,7 +104,7 @@ async function main(): Promise<void> {
   window.visualViewport?.addEventListener("resize", syncViewport);
   window.visualViewport?.addEventListener("scroll", syncViewport);
 
-  setupMobileKeybar(terminalContainer, terminal, (input) => connection.sendInput(input));
+  transformTerminalInput = setupMobileKeybar(terminalContainer, terminal, (input) => connection.sendInput(input));
 
   terminal.focus();
   await connection.connect();
@@ -122,12 +124,12 @@ function setupMobileKeybar(
   container: HTMLElement,
   terminal: { focus: () => void },
   sendInput: (input: string) => void,
-): void {
-  if (!mobileKeybar) return;
-  if (!mobileKeybarToggle) return;
+): (input: string) => string {
+  if (!mobileKeybar) return (input) => input;
+  if (!mobileKeybarToggle) return (input) => input;
 
   const isTouch = window.matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
-  if (!isTouch) return;
+  if (!isTouch) return (input) => input;
 
   const extraRow = mobileKeybar.querySelector(".mobile-row.extra") as HTMLDivElement | null;
   const ctrlButton = mobileKeybar.querySelector('[data-action="ctrl"]') as HTMLButtonElement | null;
@@ -189,12 +191,20 @@ function setupMobileKeybar(
   };
 
   const sendFromBar = (rawInput: string) => {
-    const payload = ctrlArmed ? applyCtrl(rawInput) : rawInput;
+    const payload = transformInput(rawInput);
     sendInput(payload);
-    if (ctrlArmed) {
-      setCtrlArmed(false);
-    }
     terminal.focus();
+  };
+
+  const transformInput = (rawInput: string): string => {
+    if (!ctrlArmed) {
+      return rawInput;
+    }
+
+    const payload = applyCtrl(rawInput);
+    setCtrlArmed(false);
+    updateVisibility();
+    return payload;
   };
 
   const buttons = Array.from(mobileKeybar.querySelectorAll("button"));
@@ -250,4 +260,5 @@ function setupMobileKeybar(
   }, { passive: true });
 
   updateVisibility();
+  return transformInput;
 }
