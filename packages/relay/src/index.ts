@@ -4,6 +4,7 @@ interface Env {
   SESSION: DurableObjectNamespace<Session>;
   RATE_LIMITER: DurableObjectNamespace<RateLimiter>;
   ASSETS: Fetcher;
+  MAX_VIEWERS_PER_SESSION?: string;
 }
 
 type Role = "host" | "viewer";
@@ -32,10 +33,13 @@ const HEARTBEAT_PING = "__fied_ping__";
 const HEARTBEAT_PONG = "__fied_pong__";
 const VIEWER_JOINED = "__fied_viewer_joined__";
 const MAX_FRAME_BYTES = 64 * 1024;
+const REPLAY_BUFFER_MAX_BYTES = 256 * 1024;
+const REPLAY_BUFFER_MAX_FRAMES = 32;
 const SOCKET_BUCKET_BURST = 120;
 const SOCKET_BUCKET_REFILL_PER_SECOND = 60;
 const SESSION_CREATE_BUCKET_BURST = 20;
 const SESSION_CREATE_BUCKET_REFILL_PER_SECOND = 10 / 60;
+const DEFAULT_MAX_VIEWERS_PER_SESSION = 5;
 
 const CONTENT_SECURITY_POLICY = [
   "default-src 'none'",
@@ -125,9 +129,16 @@ export class Session extends DurableObject<Env> {
   private createdAt: number | null = null;
   private lastActivityAt: number | null = null;
   private lastPersistedAt = 0;
+  private recentHostFrames: ArrayBuffer[] = [];
+  private recentHostFrameBytes = 0;
+  private maxViewersPerSession = DEFAULT_MAX_VIEWERS_PER_SESSION;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    const parsedLimit = Number.parseInt(env.MAX_VIEWERS_PER_SESSION ?? "", 10);
+    if (Number.isInteger(parsedLimit) && parsedLimit > 0) {
+      this.maxViewersPerSession = parsedLimit;
+    }
     this.initializeHeartbeatState();
     this.startHeartbeat();
   }
@@ -169,6 +180,12 @@ export class Session extends DurableObject<Env> {
       if (role === "host" && sockets.some((socket) => this.getSocketMeta(socket)?.role === "host")) {
         return text("host already connected", 409);
       }
+      if (role === "viewer") {
+        const viewerCount = sockets.filter((socket) => this.getSocketMeta(socket)?.role === "viewer").length;
+        if (viewerCount >= this.maxViewersPerSession) {
+          return text("viewer limit reached", 429);
+        }
+      }
 
       const pair = new WebSocketPair();
       const client = pair[0];
@@ -182,10 +199,11 @@ export class Session extends DurableObject<Env> {
       this.touchActivity(Date.now());
 
       if (role === "viewer") {
+        this.replayRecentFrames(server);
+
         const sockets = this.ctx.getWebSockets();
-        const viewerCount = sockets.filter((socket) => this.getSocketMeta(socket)?.role === "viewer").length;
         const host = sockets.find((socket) => this.getSocketMeta(socket)?.role === "host");
-        if (viewerCount === 1 && host) {
+        if (host) {
           host.send(VIEWER_JOINED);
         }
       }
@@ -236,6 +254,8 @@ export class Session extends DurableObject<Env> {
     }
 
     if (meta.role === "host") {
+      this.bufferHostFrame(message);
+
       for (const viewer of this.ctx.getWebSockets()) {
         const viewerMeta = this.getSocketMeta(viewer);
         if (viewerMeta?.role === "viewer") {
@@ -267,6 +287,8 @@ export class Session extends DurableObject<Env> {
     this.socketRate.delete(ws);
 
     if (meta?.role === "host") {
+      this.clearReplayBuffer();
+
       for (const socket of this.ctx.getWebSockets()) {
         if (socket !== ws && this.getSocketMeta(socket)?.role === "viewer") {
           socket.close(1012, "host disconnected");
@@ -411,7 +433,36 @@ export class Session extends DurableObject<Env> {
     this.createdAt = null;
     this.lastActivityAt = null;
     this.lastPersistedAt = 0;
+    this.clearReplayBuffer();
     await this.ctx.storage.deleteAll();
+  }
+
+  private bufferHostFrame(frame: ArrayBuffer): void {
+    const copy = frame.slice(0);
+    this.recentHostFrames.push(copy);
+    this.recentHostFrameBytes += copy.byteLength;
+
+    while (
+      this.recentHostFrames.length > REPLAY_BUFFER_MAX_FRAMES ||
+      this.recentHostFrameBytes > REPLAY_BUFFER_MAX_BYTES
+    ) {
+      const dropped = this.recentHostFrames.shift();
+      if (!dropped) {
+        break;
+      }
+      this.recentHostFrameBytes -= dropped.byteLength;
+    }
+  }
+
+  private replayRecentFrames(viewer: WebSocket): void {
+    for (const frame of this.recentHostFrames) {
+      viewer.send(frame);
+    }
+  }
+
+  private clearReplayBuffer(): void {
+    this.recentHostFrames = [];
+    this.recentHostFrameBytes = 0;
   }
 }
 

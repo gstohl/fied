@@ -7,6 +7,9 @@ routes = [
   { pattern = "fied.app", custom_domain = true }
 ]
 
+[vars]
+MAX_VIEWERS_PER_SESSION = "5"
+
 [assets]
 directory = "../web/dist"
 binding = "ASSETS"

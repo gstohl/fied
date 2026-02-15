@@ -64,8 +64,14 @@ async function main(): Promise<void> {
     (cols, rows) => connection.sendResize(cols, rows),
   );
 
+  const applyViewportHeight = () => {
+    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+    terminalContainer.style.height = `${Math.max(120, Math.floor(viewportHeight))}px`;
+  };
+
   const syncViewport = () => {
     requestAnimationFrame(() => {
+      applyViewportHeight();
       fitAddon.fit();
       const dims = fitAddon.proposeDimensions();
       if (dims) {
@@ -90,6 +96,9 @@ async function main(): Promise<void> {
   });
 
   window.addEventListener("load", syncViewport, { once: true });
+  window.addEventListener("resize", syncViewport);
+  window.visualViewport?.addEventListener("resize", syncViewport);
+  window.visualViewport?.addEventListener("scroll", syncViewport);
 
   terminal.focus();
   await connection.connect();
