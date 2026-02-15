@@ -30,6 +30,7 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
 const HEARTBEAT_PING = "__fied_ping__";
 const HEARTBEAT_PONG = "__fied_pong__";
+const VIEWER_JOINED = "__fied_viewer_joined__";
 const MAX_FRAME_BYTES = 64 * 1024;
 const SOCKET_BUCKET_BURST = 120;
 const SOCKET_BUCKET_REFILL_PER_SECOND = 60;
@@ -179,6 +180,15 @@ export class Session extends DurableObject<Env> {
       this.heartbeat.set(server, { awaitingPong: false, lastPingAt: Date.now() });
       this.socketRate.set(server, { tokens: SOCKET_BUCKET_BURST, lastRefillAt: Date.now() });
       this.touchActivity(Date.now());
+
+      if (role === "viewer") {
+        const sockets = this.ctx.getWebSockets();
+        const viewerCount = sockets.filter((socket) => this.getSocketMeta(socket)?.role === "viewer").length;
+        const host = sockets.find((socket) => this.getSocketMeta(socket)?.role === "host");
+        if (viewerCount === 1 && host) {
+          host.send(VIEWER_JOINED);
+        }
+      }
 
       return new Response(null, { status: 101, webSocket: client });
     }

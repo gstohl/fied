@@ -11,14 +11,11 @@ That's it. You get a link. Anyone with the link sees your terminal in real time 
 ## How it works
 
 ```
-┌─────────────┐         ┌──────────────────────┐         ┌─────────────┐
-│   CLI        │◄──WS───►│   fied.app            │◄──WS───►│   Browser    │
-│   (your box) │         │   (Cloudflare Worker) │         │   (viewer)   │
-│              │         │                      │         │              │
-│ tmux attach  │         │   forwards encrypted  │         │ xterm.js     │
-│ AES-256-GCM  │         │   bytes, never reads  │         │ decrypts w/  │
-│ encrypt      │         │   them                │         │ key from #   │
-└─────────────┘         └──────────────────────┘         └─────────────┘
+CLI (your tmux session)
+  <-> encrypted WebSocket bytes
+fied.app relay (Cloudflare Worker + Durable Object)
+  <-> encrypted WebSocket bytes
+Browser viewer (xterm.js + in-browser decrypt with key from #fragment)
 ```
 
 1. `npx fied` attaches to your tmux session, generates a 256-bit AES key, and connects to the relay
@@ -38,7 +35,7 @@ npx fied
 npx fied -s mysession
 
 # Use a custom relay (self-hosted)
-npx fied --relay http://localhost:8787
+npx fied --relay http://localhost:8787 --allow-insecure-relay
 ```
 
 ### Requirements

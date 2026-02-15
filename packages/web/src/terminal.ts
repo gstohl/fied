@@ -16,9 +16,9 @@ export function createTerminal(
     cursorBlink: true,
     cursorStyle: "bar",
     fontFamily:
-      "'SF Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, 'Cascadia Mono', 'Liberation Mono', 'Ubuntu Mono', 'DejaVu Sans Mono', monospace",
-    fontSize: 14,
-    lineHeight: 1.2,
+      "ui-monospace, 'Cascadia Mono', 'Cascadia Code', 'SFMono-Regular', 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', 'DejaVu Sans Mono', 'Courier New', monospace",
+    fontSize: 15,
+    lineHeight: 1.15,
     theme: {
       background: "#000000",
       foreground: "#c7c7c7",

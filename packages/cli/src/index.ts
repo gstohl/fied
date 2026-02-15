@@ -17,6 +17,7 @@ const DEFAULT_RELAY = "https://fied.app";
 const MSG_TERMINAL_OUTPUT = 0x01;
 const MSG_TERMINAL_INPUT = 0x02;
 const MSG_RESIZE = 0x03;
+const VIEWER_JOINED = "__fied_viewer_joined__";
 
 const RESIZE_MIN_COLS = 20;
 const RESIZE_MAX_COLS = 1000;
@@ -261,6 +262,8 @@ class RelayBridge {
         const text = this.decoder.decode(raw);
         if (text === "__fied_ping__") {
           ws.send("__fied_pong__");
+        } else if (text === VIEWER_JOINED) {
+          this.pty.write("\u000c");
         }
         return;
       }
