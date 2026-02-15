@@ -2,6 +2,7 @@ import WebSocket from "ws";
 import { type IPty } from "node-pty";
 import {
   generateKey,
+  fromBase64Url,
   importKey,
   encrypt,
   decrypt,
@@ -40,6 +41,9 @@ export interface FiedOptions {
   rows?: number;
   background?: boolean;
   allowInsecureRelay?: boolean;
+  sessionId?: string;
+  keyBase64Url?: string;
+  onShareUrl?: (url: string) => void | Promise<void>;
 }
 
 export async function share(options: FiedOptions): Promise<void> {
@@ -74,9 +78,9 @@ export async function share(options: FiedOptions): Promise<void> {
   const cols = options.cols ?? process.stdout.columns ?? 80;
   const rows = options.rows ?? process.stdout.rows ?? 24;
 
-  const rawKey = await generateKey();
+  const rawKey = options.keyBase64Url ? fromBase64Url(options.keyBase64Url) : await generateKey();
   const cryptoKey = await importKey(rawKey);
-  const keyFragment = toBase64Url(rawKey);
+  const keyFragment = options.keyBase64Url ?? toBase64Url(rawKey);
 
   const pty = attachSession(targetSession, cols, rows);
 
@@ -89,7 +93,7 @@ export async function share(options: FiedOptions): Promise<void> {
     console.log("");
   }
 
-  const bridge = new RelayBridge(relayTarget, cryptoKey, keyFragment, pty, options.background);
+  const bridge = new RelayBridge(relayTarget, cryptoKey, keyFragment, pty, options.background, options.sessionId);
 
   const onUrl = (url: string) => {
     if (options.background) {
@@ -101,6 +105,8 @@ export async function share(options: FiedOptions): Promise<void> {
         startedAt: new Date().toISOString(),
       });
     }
+
+    return options.onShareUrl?.(url);
   };
 
   await bridge.connect(onUrl);
@@ -190,7 +196,7 @@ class RelayBridge {
   private encoder = new TextEncoder();
   private decoder = new TextDecoder();
   private sessionId: string | null = null;
-  private onUrl: ((url: string) => void) | null = null;
+  private onUrl: ((url: string) => void | Promise<void>) | null = null;
   private invalidResizeFrames = 0;
 
   constructor(
@@ -199,7 +205,9 @@ class RelayBridge {
     private keyFragment: string,
     private pty: IPty,
     private silent = false,
+    sessionId?: string,
   ) {
+    this.sessionId = sessionId ?? null;
     this.pty.onData((data: string) => {
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.sendEncrypted(MSG_TERMINAL_OUTPUT, this.encoder.encode(data));
@@ -207,7 +215,7 @@ class RelayBridge {
     });
   }
 
-  async connect(onUrl?: (url: string) => void): Promise<void> {
+  async connect(onUrl?: (url: string) => void | Promise<void>): Promise<void> {
     if (this.destroyed) return;
 
     if (onUrl) {
@@ -225,7 +233,6 @@ class RelayBridge {
 
       const shareUrl = new URL(`s/${this.sessionId}`, this.relayTarget.httpBase);
       const url = `${shareUrl.toString()}#${this.keyFragment}`;
-      this.onUrl?.(url);
 
       if (!this.silent) {
         console.log(`  \x1b[1mShare this link:\x1b[0m`);
@@ -235,6 +242,8 @@ class RelayBridge {
         console.log("  \x1b[2mPress Ctrl+C to stop sharing.\x1b[0m");
         console.log("");
       }
+
+      void this.onUrl?.(url);
     }
 
     const wsUrl = new URL(`api/sessions/${this.sessionId}/ws`, this.relayTarget.wsBase);

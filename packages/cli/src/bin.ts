@@ -29,7 +29,13 @@ if (args.includes("--help") || args.includes("-h")) {
 }
 
 if (args.includes("--__daemon")) {
-  const options: { session?: string; relay?: string; allowInsecureRelay?: boolean } = {};
+  const options: {
+    session?: string;
+    relay?: string;
+    allowInsecureRelay?: boolean;
+    sessionId?: string;
+    keyBase64Url?: string;
+  } = {};
   for (let i = 0; i < args.length; i++) {
     if ((args[i] === "--session" || args[i] === "-s") && args[i + 1]) {
       options.session = args[++i];
@@ -37,6 +43,10 @@ if (args.includes("--__daemon")) {
       options.relay = args[++i];
     } else if (args[i] === "--allow-insecure-relay") {
       options.allowInsecureRelay = true;
+    } else if (args[i] === "--__session-id" && args[i + 1]) {
+      options.sessionId = args[++i];
+    } else if (args[i] === "--__key" && args[i + 1]) {
+      options.keyBase64Url = args[++i];
     }
   }
   share({ ...options, background: true }).catch(() => process.exit(1));
@@ -123,30 +133,80 @@ async function main(): Promise<void> {
     }
   }
 
-  const background = await confirm("Run in background?");
-
-  if (background) {
-    const binPath = fileURLToPath(import.meta.url);
-    const childArgs = ["--__daemon", "--session", session];
-    if (relay) childArgs.push("--relay", relay);
-    if (allowInsecureRelay) childArgs.push("--allow-insecure-relay");
-
-    const child = spawnChild(process.execPath, [binPath, ...childArgs], {
-      detached: true,
-      stdio: "ignore",
-    });
-    child.unref();
-
-    console.error("");
-    console.error(`  \x1b[1m\x1b[32mfied\x1b[0m — started in background (PID ${child.pid})`);
-    console.error(`  Session: ${session}`);
-    console.error("  Run \x1b[1mnpx fied\x1b[0m again to manage.");
-    console.error("");
-
-    setTimeout(() => process.exit(0), 500);
-  } else {
-    await share({ session, relay, allowInsecureRelay });
+  if (!session) {
+    throw new Error("No tmux session selected");
   }
+
+  await share({
+    session,
+    relay,
+    allowInsecureRelay,
+    onShareUrl: async (url) => {
+      const background = await confirm("Run in background?");
+      if (!background) {
+        return;
+      }
+
+      const parsed = parseShareUrl(url);
+      const child = spawnBackground({
+        session,
+        relay,
+        allowInsecureRelay,
+        sessionId: parsed.sessionId,
+        keyBase64Url: parsed.keyBase64Url,
+      });
+
+      console.error("");
+      console.error(`  \x1b[1m\x1b[32mfied\x1b[0m — moved to background (PID ${child.pid})`);
+      console.error(`  Session: ${session}`);
+      console.error("  Same share link stays active.");
+      console.error("  Run \x1b[1mnpx fied\x1b[0m again to manage.");
+      console.error("");
+
+      setTimeout(() => process.exit(0), 300);
+    },
+  });
+}
+
+function spawnBackground(options: {
+  session: string;
+  relay?: string;
+  allowInsecureRelay: boolean;
+  sessionId: string;
+  keyBase64Url: string;
+}) {
+  const binPath = fileURLToPath(import.meta.url);
+  const childArgs = [
+    "--__daemon",
+    "--session",
+    options.session,
+    "--__session-id",
+    options.sessionId,
+    "--__key",
+    options.keyBase64Url,
+  ];
+  if (options.relay) childArgs.push("--relay", options.relay);
+  if (options.allowInsecureRelay) childArgs.push("--allow-insecure-relay");
+
+  const child = spawnChild(process.execPath, [binPath, ...childArgs], {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+  return child;
+}
+
+function parseShareUrl(url: string): { sessionId: string; keyBase64Url: string } {
+  const parsed = new URL(url);
+  const match = parsed.pathname.match(/^\/s\/([A-Za-z0-9_-]{8,64})$/);
+  if (!match || !parsed.hash) {
+    throw new Error("Invalid share URL");
+  }
+
+  return {
+    sessionId: match[1],
+    keyBase64Url: parsed.hash.slice(1),
+  };
 }
 
 function timeSince(date: Date): string {

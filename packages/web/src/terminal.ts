@@ -16,13 +16,18 @@ export function createTerminal(
     cursorBlink: true,
     cursorStyle: "bar",
     fontFamily:
-      "ui-monospace, 'Cascadia Mono', 'Cascadia Code', 'SFMono-Regular', 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', 'DejaVu Sans Mono', 'Courier New', monospace",
-    fontSize: 15,
-    lineHeight: 1.15,
+      "Menlo, Monaco, Consolas, 'Liberation Mono', 'DejaVu Sans Mono', 'Courier New', monospace",
+    fontSize: 14,
+    lineHeight: 1.08,
+    fontWeight: "400",
+    letterSpacing: 0,
+    macOptionClickForcesSelection: true,
     theme: {
       background: "#000000",
       foreground: "#c7c7c7",
       cursor: "#c7c7c7",
+      selectionBackground: "rgba(128, 160, 255, 0.35)",
+      selectionInactiveBackground: "rgba(128, 160, 255, 0.22)",
     },
     allowProposedApi: true,
   });

@@ -6,6 +6,7 @@ const landing = document.getElementById("landing")!;
 const terminalContainer = document.getElementById("terminal-container")!;
 const errorView = document.getElementById("error-view")!;
 const copyCommandButton = document.getElementById("copy-cmd") as HTMLDivElement | null;
+const outputDecoder = new TextDecoder();
 
 function showError(title: string, detail: string): void {
   errorView.style.display = "flex";
@@ -63,24 +64,43 @@ async function main(): Promise<void> {
     (cols, rows) => connection.sendResize(cols, rows),
   );
 
+  const syncViewport = () => {
+    requestAnimationFrame(() => {
+      fitAddon.fit();
+      const dims = fitAddon.proposeDimensions();
+      if (dims) {
+        connection.sendResize(dims.cols, dims.rows);
+      }
+    });
+  };
+
   const connection = new Connection(route.sessionId, route.keyBase64Url, {
-    onTerminalOutput: (data) => terminal.write(data),
+    onTerminalOutput: (data) => terminal.write(normalizeTerminalOutput(data)),
     onResize: (cols, rows) => {
       terminal.resize(cols, rows);
       requestAnimationFrame(() => fitAddon.fit());
     },
     onStateChange: (state) => {
       if (state === "connected") {
-        const dims = fitAddon.proposeDimensions();
-        if (dims) {
-          connection.sendResize(dims.cols, dims.rows);
-        }
+        syncViewport();
+        setTimeout(syncViewport, 120);
+        setTimeout(syncViewport, 500);
       }
     },
   });
+
+  window.addEventListener("load", syncViewport, { once: true });
 
   terminal.focus();
   await connection.connect();
 }
 
 main();
+
+function normalizeTerminalOutput(data: Uint8Array): string {
+  let text = outputDecoder.decode(data);
+  text = text.replace(/\u23FA/g, "\u23FA\uFE0E");
+  const mouseModeOn = new RegExp(`${String.fromCharCode(27)}\\[\\?(1000|1002|1003|1005|1006|1015|1007)h`, "g");
+  text = text.replace(mouseModeOn, "");
+  return text;
+}
