@@ -6,6 +6,7 @@ const landing = document.getElementById("landing")!;
 const terminalContainer = document.getElementById("terminal-container")!;
 const errorView = document.getElementById("error-view")!;
 const copyCommandButton = document.getElementById("copy-cmd") as HTMLDivElement | null;
+const mobileKeybar = document.getElementById("mobile-keybar") as HTMLDivElement | null;
 const outputDecoder = new TextDecoder();
 
 function showError(title: string, detail: string): void {
@@ -100,6 +101,8 @@ async function main(): Promise<void> {
   window.visualViewport?.addEventListener("resize", syncViewport);
   window.visualViewport?.addEventListener("scroll", syncViewport);
 
+  setupMobileKeybar(terminalContainer, terminal, (input) => connection.sendInput(input));
+
   terminal.focus();
   await connection.connect();
 }
@@ -112,4 +115,113 @@ function normalizeTerminalOutput(data: Uint8Array): string {
   const mouseModeOn = new RegExp(`${String.fromCharCode(27)}\\[\\?(1000|1002|1003|1005|1006|1015|1007)h`, "g");
   text = text.replace(mouseModeOn, "");
   return text;
+}
+
+function setupMobileKeybar(
+  container: HTMLElement,
+  terminal: { focus: () => void },
+  sendInput: (input: string) => void,
+): void {
+  if (!mobileKeybar) return;
+
+  const isTouch = window.matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
+  if (!isTouch) return;
+
+  const extraRow = mobileKeybar.querySelector(".mobile-row.extra") as HTMLDivElement | null;
+  const ctrlButton = mobileKeybar.querySelector('[data-action="ctrl"]') as HTMLButtonElement | null;
+
+  let ctrlArmed = false;
+
+  const setCtrlArmed = (armed: boolean) => {
+    ctrlArmed = armed;
+    if (ctrlButton) {
+      ctrlButton.classList.toggle("active", armed);
+      ctrlButton.setAttribute("aria-pressed", armed ? "true" : "false");
+    }
+  };
+
+  const likelyKeyboardVisible = (): boolean => {
+    const visualHeight = window.visualViewport?.height;
+    if (!visualHeight) return false;
+    return window.innerHeight - visualHeight > 120;
+  };
+
+  const updateVisibility = () => {
+    const viewport = window.visualViewport;
+    const occludedBottom = viewport
+      ? Math.max(0, Math.round(window.innerHeight - (viewport.height + viewport.offsetTop)))
+      : 0;
+    mobileKeybar.style.bottom = `${occludedBottom}px`;
+
+    const shouldShow = likelyKeyboardVisible() || container.contains(document.activeElement);
+    mobileKeybar.classList.toggle("visible", shouldShow);
+    mobileKeybar.setAttribute("aria-hidden", shouldShow ? "false" : "true");
+  };
+
+  const applyCtrl = (input: string): string => {
+    if (input === "\u001b[A") return "\u001b[1;5A";
+    if (input === "\u001b[B") return "\u001b[1;5B";
+    if (input === "\u001b[C") return "\u001b[1;5C";
+    if (input === "\u001b[D") return "\u001b[1;5D";
+    if (input === "\u001b[5~") return "\u001b[5;5~";
+    if (input === "\u001b[6~") return "\u001b[6;5~";
+    if (input.length === 1) {
+      const upper = input.toUpperCase();
+      if (upper >= "@" && upper <= "_") {
+        return String.fromCharCode(upper.charCodeAt(0) - 64);
+      }
+    }
+    return input;
+  };
+
+  const sendFromBar = (rawInput: string) => {
+    const payload = ctrlArmed ? applyCtrl(rawInput) : rawInput;
+    sendInput(payload);
+    if (ctrlArmed) {
+      setCtrlArmed(false);
+    }
+    terminal.focus();
+  };
+
+  const buttons = Array.from(mobileKeybar.querySelectorAll("button"));
+  for (const button of buttons) {
+    button.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+    });
+
+    button.addEventListener("click", () => {
+      const action = button.getAttribute("data-action");
+      if (action === "ctrl") {
+        setCtrlArmed(!ctrlArmed);
+        terminal.focus();
+        updateVisibility();
+        return;
+      }
+      if (action === "toggle-extra") {
+        if (extraRow) {
+          extraRow.hidden = !extraRow.hidden;
+        }
+        terminal.focus();
+        updateVisibility();
+        return;
+      }
+
+      const rawInput = button.getAttribute("data-input");
+      if (!rawInput) return;
+      sendFromBar(rawInput);
+      updateVisibility();
+    });
+  }
+
+  window.addEventListener("resize", updateVisibility);
+  window.visualViewport?.addEventListener("resize", updateVisibility);
+  window.visualViewport?.addEventListener("scroll", updateVisibility);
+  document.addEventListener("focusin", updateVisibility);
+  document.addEventListener("focusout", () => setTimeout(updateVisibility, 0));
+  container.addEventListener("touchstart", () => {
+    terminal.focus();
+    updateVisibility();
+  }, { passive: true });
+
+  updateVisibility();
 }
