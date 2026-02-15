@@ -9,6 +9,7 @@ routes = [
 
 [assets]
 directory = "../web/dist"
+binding = "ASSETS"
 not_found_handling = "single-page-application"
 
 [durable_objects]
