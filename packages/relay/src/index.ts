@@ -1,3 +1,5 @@
+import { DurableObject } from "cloudflare:workers";
+
 interface Env {
   SESSION: DurableObjectNamespace<Session>;
 }
@@ -45,7 +47,7 @@ function text(content: string, status = 200): Response {
   });
 }
 
-export class Session extends CloudflareWorkersModule.DurableObject<Env> {
+export class Session extends DurableObject<Env> {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private heartbeat = new Map<WebSocket, HeartbeatState>();
 
