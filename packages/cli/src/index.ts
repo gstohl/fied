@@ -104,19 +104,31 @@ export async function share(options: FiedOptions): Promise<void> {
 
   await bridge.connect(onUrl);
 
-  const shutdown = () => {
+  let closed = false;
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
     bridge.destroy();
-    pty.kill();
-    if (options.background) removeSession(process.pid);
+    try {
+      pty.kill();
+    } catch {
+    }
+    if (options.background) {
+      removeSession(process.pid);
+    }
   };
 
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  const exitNow = (code: number) => {
+    cleanup();
+    process.exit(code);
+  };
+
+  process.once("SIGINT", () => exitNow(0));
+  process.once("SIGTERM", () => exitNow(0));
 
   await new Promise<void>((resolve) => {
     pty.onExit(() => {
-      bridge.destroy();
-      if (options.background) removeSession(process.pid);
+      cleanup();
       resolve();
     });
   });

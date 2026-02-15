@@ -15,7 +15,8 @@ export function createTerminal(
   const terminal = new Terminal({
     cursorBlink: true,
     cursorStyle: "bar",
-    fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace",
+    fontFamily:
+      "'SF Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, 'Cascadia Mono', 'Liberation Mono', 'Ubuntu Mono', 'DejaVu Sans Mono', monospace",
     fontSize: 14,
     lineHeight: 1.2,
     theme: {
