@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>fied</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600&display=swap');
+
+      *,
+      *::before,
+      *::after {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      :root {
+        --bg-deep: #0f1019;
+        --bg-surface: #1a1b26;
+        --fg-primary: #c0caf5;
+        --fg-muted: #565f89;
+        --accent: #7aa2f7;
+        --accent-glow: rgba(122, 162, 247, 0.15);
+        --green: #9ece6a;
+        --red: #f7768e;
+        --border: rgba(192, 202, 245, 0.06);
+        --status-height: 32px;
+      }
+
+      html, body {
+        height: 100%;
+        width: 100%;
+        overflow: hidden;
+        background: var(--bg-deep);
+        color: var(--fg-primary);
+        font-family: 'DM Sans', sans-serif;
+      }
+
+      #app {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        width: 100%;
+      }
+
+      #status-bar {
+        height: var(--status-height);
+        min-height: var(--status-height);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 12px;
+        background: var(--bg-surface);
+        border-bottom: 1px solid var(--border);
+        font-size: 11px;
+        font-family: 'JetBrains Mono', monospace;
+        letter-spacing: 0.02em;
+        user-select: none;
+        z-index: 10;
+      }
+
+      #status-bar .left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      #status-bar .logo {
+        font-weight: 600;
+        font-size: 12px;
+        color: var(--accent);
+        letter-spacing: 0.08em;
+        text-transform: lowercase;
+      }
+
+      #status-bar .divider {
+        width: 1px;
+        height: 12px;
+        background: var(--fg-muted);
+        opacity: 0.3;
+      }
+
+      .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 6px;
+        flex-shrink: 0;
+      }
+
+      .status-dot.connecting {
+        background: var(--fg-muted);
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+
+      .status-dot.connected {
+        background: var(--green);
+        box-shadow: 0 0 6px rgba(158, 206, 106, 0.4);
+      }
+
+      .status-dot.disconnected {
+        background: var(--red);
+      }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 0.4; }
+        50% { opacity: 1; }
+      }
+
+      #status-text {
+        color: var(--fg-muted);
+      }
+
+      #reconnect-btn {
+        display: none;
+        background: none;
+        border: 1px solid var(--fg-muted);
+        color: var(--fg-muted);
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+        padding: 2px 8px;
+        border-radius: 3px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        letter-spacing: 0.02em;
+      }
+
+      #reconnect-btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+        background: var(--accent-glow);
+      }
+
+      #terminal-container {
+        flex: 1;
+        overflow: hidden;
+        background: var(--bg-surface);
+        position: relative;
+      }
+
+      #terminal-container::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
+        z-index: 1;
+        pointer-events: none;
+      }
+
+      .xterm {
+        padding: 8px;
+        height: 100%;
+      }
+
+      #error-view {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        gap: 12px;
+        color: var(--fg-muted);
+        font-size: 13px;
+        text-align: center;
+        padding: 24px;
+      }
+
+      #error-view .error-title {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 14px;
+        color: var(--red);
+        font-weight: 500;
+      }
+
+      #error-view .error-detail {
+        max-width: 420px;
+        line-height: 1.6;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="status-bar">
+        <div class="left">
+          <span class="logo">fied</span>
+          <span class="divider"></span>
+          <span class="status-dot connecting" id="status-dot"></span>
+          <span id="status-text">initializing</span>
+        </div>
+        <button id="reconnect-btn">reconnect</button>
+      </div>
+      <div id="terminal-container"></div>
+      <div id="error-view">
+        <div class="error-title"></div>
+        <div class="error-detail"></div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
