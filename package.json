@@ -1,0 +1,16 @@
+{
+  "name": "fied-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev:cli": "npm run dev -w packages/cli",
+    "dev:relay": "npm run dev -w packages/relay",
+    "dev:web": "npm run dev -w packages/web"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

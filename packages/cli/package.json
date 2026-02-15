@@ -1,0 +1,30 @@
+{
+  "name": "fied",
+  "version": "0.1.0",
+  "description": "Share your tmux session in the browser with end-to-end encryption",
+  "type": "module",
+  "bin": {
+    "fied": "./dist/bin.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@fied/crypto": "*",
+    "node-pty": "^1.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["tmux", "terminal", "sharing", "e2e", "encrypted"],
+  "license": "MIT"
+}
