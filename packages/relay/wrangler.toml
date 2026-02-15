@@ -14,9 +14,14 @@ not_found_handling = "single-page-application"
 
 [durable_objects]
 bindings = [
-  { name = "SESSION", class_name = "Session" }
+  { name = "SESSION", class_name = "Session" },
+  { name = "RATE_LIMITER", class_name = "RateLimiter" }
 ]
 
 [[migrations]]
 tag = "v1"
 new_classes = ["Session"]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["RateLimiter"]

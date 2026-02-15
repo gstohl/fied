@@ -1,58 +1,61 @@
 import "@xterm/xterm/css/xterm.css";
 import { createTerminal } from "./terminal";
-import { Connection, ConnectionState } from "./connection";
+import { Connection } from "./connection";
 
-const statusDot = document.getElementById("status-dot")!;
-const statusText = document.getElementById("status-text")!;
-const reconnectBtn = document.getElementById("reconnect-btn")! as HTMLButtonElement;
+const landing = document.getElementById("landing")!;
 const terminalContainer = document.getElementById("terminal-container")!;
 const errorView = document.getElementById("error-view")!;
+const copyCommandButton = document.getElementById("copy-cmd") as HTMLDivElement | null;
 
 function showError(title: string, detail: string): void {
-  terminalContainer.style.display = "none";
   errorView.style.display = "flex";
   errorView.querySelector(".error-title")!.textContent = title;
   errorView.querySelector(".error-detail")!.textContent = detail;
 }
 
-function updateStatus(state: ConnectionState): void {
-  statusDot.className = `status-dot ${state}`;
+type Route =
+  | { type: "landing" }
+  | { type: "session"; sessionId: string; keyBase64Url: string }
+  | { type: "invalid" };
 
-  switch (state) {
-    case "connecting":
-      statusText.textContent = "connecting\u2026";
-      reconnectBtn.style.display = "none";
-      break;
-    case "connected":
-      statusText.textContent = "connected (encrypted)";
-      reconnectBtn.style.display = "none";
-      break;
-    case "disconnected":
-      statusText.textContent = "disconnected";
-      reconnectBtn.style.display = "inline-block";
-      break;
-  }
-}
+function parseRoute(): Route {
+  const isSessionPath = location.pathname.match(/^\/s\//);
+  if (!isSessionPath) return { type: "landing" };
 
-function parseRoute(): { sessionId: string; keyBase64Url: string } | null {
   const pathMatch = location.pathname.match(/^\/s\/([a-zA-Z0-9_-]+)/);
-  if (!pathMatch) return null;
-
   const hash = location.hash.slice(1);
-  if (!hash) return null;
+  if (!pathMatch || !hash) return { type: "invalid" };
 
-  return { sessionId: pathMatch[1], keyBase64Url: hash };
+  return { type: "session", sessionId: pathMatch[1], keyBase64Url: hash };
 }
 
 async function main(): Promise<void> {
   const route = parseRoute();
-  if (!route) {
+
+  if (route.type === "landing") {
+    landing.style.display = "flex";
+    copyCommandButton?.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText("npx fied");
+        copyCommandButton.classList.add("copied");
+        setTimeout(() => copyCommandButton.classList.remove("copied"), 1500);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        console.warn(`fied copy failed: ${detail}`);
+      }
+    });
+    return;
+  }
+
+  if (route.type === "invalid") {
     showError(
       "invalid session link",
       "Expected URL format: /s/SESSION_ID#ENCRYPTION_KEY — check the link you were given.",
     );
     return;
   }
+
+  terminalContainer.style.display = "block";
 
   const { terminal, fitAddon } = createTerminal(
     terminalContainer,
@@ -66,12 +69,14 @@ async function main(): Promise<void> {
       terminal.resize(cols, rows);
       requestAnimationFrame(() => fitAddon.fit());
     },
-    onStateChange: updateStatus,
-  });
-
-  reconnectBtn.addEventListener("click", () => {
-    connection.disconnect();
-    connection.connect();
+    onStateChange: (state) => {
+      if (state === "connected") {
+        const dims = fitAddon.proposeDimensions();
+        if (dims) {
+          connection.sendResize(dims.cols, dims.rows);
+        }
+      }
+    },
   });
 
   terminal.focus();

@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 
 interface Env {
   SESSION: DurableObjectNamespace<Session>;
+  RATE_LIMITER: DurableObjectNamespace<RateLimiter>;
   ASSETS: Fetcher;
 }
 
@@ -12,45 +13,117 @@ type SocketMeta = {
   id: string;
 };
 
+type SocketRateState = {
+  tokens: number;
+  lastRefillAt: number;
+};
+
 type HeartbeatState = {
   awaitingPong: boolean;
   lastPingAt: number;
 };
 
-const SESSION_ID_LENGTH = 8;
+const SESSION_ID_BYTES = 12;
+const SESSION_HARD_TTL_MS = 24 * 60 * 60 * 1000;
+const SESSION_IDLE_TTL_MS = 30 * 60 * 1000;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
 const HEARTBEAT_PING = "__fied_ping__";
 const HEARTBEAT_PONG = "__fied_pong__";
+const MAX_FRAME_BYTES = 64 * 1024;
+const SOCKET_BUCKET_BURST = 120;
+const SOCKET_BUCKET_REFILL_PER_SECOND = 60;
+const SESSION_CREATE_BUCKET_BURST = 20;
+const SESSION_CREATE_BUCKET_REFILL_PER_SECOND = 10 / 60;
+
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'none'",
+  "base-uri 'none'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "font-src 'self'",
+  "connect-src 'self' ws: wss:",
+].join("; ");
+
+const EDGE_SECURITY_HEADERS: Record<string, string> = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+  "x-frame-options": "DENY",
+};
 
 function randomSessionId(): string {
-  return crypto.randomUUID().replace(/[^a-zA-Z0-9]/g, "").slice(0, SESSION_ID_LENGTH);
+  const bytes = crypto.getRandomValues(new Uint8Array(SESSION_ID_BYTES));
+  let binary = "";
+  for (const b of bytes) {
+    binary += String.fromCharCode(b);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function securityHeaders(contentType: string): Headers {
+  const headers = new Headers({
+    ...EDGE_SECURITY_HEADERS,
+    "content-type": contentType,
+  });
+  if (contentType.includes("text/html")) {
+    headers.set("content-security-policy", CONTENT_SECURITY_POLICY);
+  }
+  return headers;
+}
+
+function withSecurityHeaders(response: Response): Response {
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(EDGE_SECURITY_HEADERS)) {
+    headers.set(key, value);
+  }
+
+  const contentType = headers.get("content-type")?.toLowerCase() ?? "";
+  if (contentType.includes("text/html")) {
+    headers.set("content-security-policy", CONTENT_SECURITY_POLICY);
+  }
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: securityHeaders("application/json; charset=utf-8"),
   });
 }
 
 function html(content: string, status = 200): Response {
   return new Response(content, {
     status,
-    headers: { "content-type": "text/html; charset=utf-8" },
+    headers: securityHeaders("text/html; charset=utf-8"),
   });
 }
 
 function text(content: string, status = 200): Response {
   return new Response(content, {
     status,
-    headers: { "content-type": "text/plain; charset=utf-8" },
+    headers: securityHeaders("text/plain; charset=utf-8"),
   });
+}
+
+function parseClientIp(request: Request): string {
+  return request.headers.get("cf-connecting-ip") ?? "unknown";
 }
 
 export class Session extends DurableObject<Env> {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private heartbeat = new Map<WebSocket, HeartbeatState>();
+  private socketRate = new Map<WebSocket, SocketRateState>();
+  private createdAt: number | null = null;
+  private lastActivityAt: number | null = null;
+  private lastPersistedAt = 0;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -62,7 +135,11 @@ export class Session extends DurableObject<Env> {
     const url = new URL(request.url);
 
     if (url.pathname === "/internal/init" && request.method === "POST") {
-      await this.ctx.storage.put("created", true);
+      const now = Date.now();
+      this.createdAt = now;
+      this.lastActivityAt = now;
+      this.lastPersistedAt = now;
+      await this.ctx.storage.put({ created: true, createdAt: now, lastActivityAt: now });
       return text("ok", 201);
     }
 
@@ -70,6 +147,12 @@ export class Session extends DurableObject<Env> {
       const created = await this.ctx.storage.get<boolean>("created");
       if (!created) {
         return text("session not found", 404);
+      }
+
+      await this.loadSessionState();
+      if (this.isExpired(Date.now())) {
+        await this.expireSession("session expired");
+        return text("session expired", 410);
       }
 
       const role = url.searchParams.get("role");
@@ -94,6 +177,8 @@ export class Session extends DurableObject<Env> {
       server.serializeAttachment(meta);
       this.ctx.acceptWebSocket(server);
       this.heartbeat.set(server, { awaitingPong: false, lastPingAt: Date.now() });
+      this.socketRate.set(server, { tokens: SOCKET_BUCKET_BURST, lastRefillAt: Date.now() });
+      this.touchActivity(Date.now());
 
       return new Response(null, { status: 101, webSocket: client });
     }
@@ -102,13 +187,35 @@ export class Session extends DurableObject<Env> {
   }
 
   webSocketMessage(ws: WebSocket, message: ArrayBuffer | string): void {
+    const now = Date.now();
+    if (this.isExpired(now)) {
+      ws.close(1008, "session expired");
+      void this.expireSession("session expired");
+      return;
+    }
+
+    if (!this.consumeSocketToken(ws, now)) {
+      ws.close(1013, "rate limit exceeded");
+      return;
+    }
+
     if (typeof message === "string") {
+      if (new TextEncoder().encode(message).byteLength > MAX_FRAME_BYTES) {
+        ws.close(1009, "frame too large");
+        return;
+      }
       if (message === HEARTBEAT_PONG) {
         const state = this.heartbeat.get(ws);
         if (state) {
           state.awaitingPong = false;
         }
+        this.touchActivity(now);
       }
+      return;
+    }
+
+    if (message.byteLength > MAX_FRAME_BYTES) {
+      ws.close(1009, "frame too large");
       return;
     }
 
@@ -125,6 +232,7 @@ export class Session extends DurableObject<Env> {
           viewer.send(message);
         }
       }
+      this.touchActivity(now);
       return;
     }
 
@@ -132,6 +240,7 @@ export class Session extends DurableObject<Env> {
     if (host) {
       host.send(message);
     }
+    this.touchActivity(now);
   }
 
   webSocketClose(ws: WebSocket): void {
@@ -145,6 +254,7 @@ export class Session extends DurableObject<Env> {
   private cleanupSocket(ws: WebSocket): void {
     const meta = this.getSocketMeta(ws);
     this.heartbeat.delete(ws);
+    this.socketRate.delete(ws);
 
     if (meta?.role === "host") {
       for (const socket of this.ctx.getWebSockets()) {
@@ -169,6 +279,11 @@ export class Session extends DurableObject<Env> {
 
     this.heartbeatTimer = setInterval(() => {
       const now = Date.now();
+
+      if (this.isExpired(now)) {
+        void this.expireSession("session expired");
+        return;
+      }
 
       for (const socket of this.ctx.getWebSockets()) {
         if (!this.heartbeat.has(socket)) {
@@ -214,6 +329,126 @@ export class Session extends DurableObject<Env> {
 
     return { role: typedMeta.role, id: typedMeta.id };
   }
+
+  private async loadSessionState(): Promise<void> {
+    if (this.createdAt !== null && this.lastActivityAt !== null) {
+      return;
+    }
+
+    const [createdAt, lastActivityAt] = await Promise.all([
+      this.ctx.storage.get<number>("createdAt"),
+      this.ctx.storage.get<number>("lastActivityAt"),
+    ]);
+
+    this.createdAt = createdAt ?? null;
+    this.lastActivityAt = lastActivityAt ?? null;
+  }
+
+  private isExpired(now: number): boolean {
+    if (this.createdAt === null || this.lastActivityAt === null) {
+      return false;
+    }
+
+    if (now - this.createdAt > SESSION_HARD_TTL_MS) {
+      return true;
+    }
+
+    if (now - this.lastActivityAt > SESSION_IDLE_TTL_MS) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private touchActivity(now: number): void {
+    this.lastActivityAt = now;
+    if (now - this.lastPersistedAt < 1000) {
+      return;
+    }
+    this.lastPersistedAt = now;
+    void this.ctx.storage.put("lastActivityAt", now);
+  }
+
+  private consumeSocketToken(ws: WebSocket, now: number): boolean {
+    let state = this.socketRate.get(ws);
+    if (!state) {
+      state = { tokens: SOCKET_BUCKET_BURST, lastRefillAt: now };
+      this.socketRate.set(ws, state);
+    }
+
+    const elapsedMs = now - state.lastRefillAt;
+    if (elapsedMs > 0) {
+      const refill = (elapsedMs / 1000) * SOCKET_BUCKET_REFILL_PER_SECOND;
+      state.tokens = Math.min(SOCKET_BUCKET_BURST, state.tokens + refill);
+      state.lastRefillAt = now;
+    }
+
+    if (state.tokens < 1) {
+      return false;
+    }
+
+    state.tokens -= 1;
+    return true;
+  }
+
+  private async expireSession(reason: string): Promise<void> {
+    for (const socket of this.ctx.getWebSockets()) {
+      socket.close(1008, reason);
+      this.heartbeat.delete(socket);
+      this.socketRate.delete(socket);
+    }
+
+    this.createdAt = null;
+    this.lastActivityAt = null;
+    this.lastPersistedAt = 0;
+    await this.ctx.storage.deleteAll();
+  }
+}
+
+type IpBucketState = {
+  tokens: number;
+  lastRefillAt: number;
+};
+
+export class RateLimiter extends DurableObject {
+  private buckets = new Map<string, IpBucketState>();
+
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname !== "/internal/check" || request.method !== "POST") {
+      return text("not found", 404);
+    }
+
+    const body = (await request.json()) as { key?: unknown };
+    if (typeof body.key !== "string" || body.key.length === 0) {
+      return text("invalid key", 400);
+    }
+
+    const allowed = this.consumeToken(body.key, Date.now());
+    return json({ allowed }, allowed ? 200 : 429);
+  }
+
+  private consumeToken(key: string, now: number): boolean {
+    let state = this.buckets.get(key);
+    if (!state) {
+      state = { tokens: SESSION_CREATE_BUCKET_BURST, lastRefillAt: now };
+      this.buckets.set(key, state);
+    }
+
+    const elapsedMs = now - state.lastRefillAt;
+    if (elapsedMs > 0) {
+      const refill = (elapsedMs / 1000) * SESSION_CREATE_BUCKET_REFILL_PER_SECOND;
+      state.tokens = Math.min(SESSION_CREATE_BUCKET_BURST, state.tokens + refill);
+      state.lastRefillAt = now;
+    }
+
+    if (state.tokens < 1) {
+      return false;
+    }
+
+    state.tokens -= 1;
+    return true;
+  }
 }
 
 export default {
@@ -221,6 +456,17 @@ export default {
     const url = new URL(request.url);
 
     if (request.method === "POST" && url.pathname === "/api/sessions") {
+      const limiterId = env.RATE_LIMITER.idFromName("session-create-limiter");
+      const limiter = env.RATE_LIMITER.get(limiterId);
+      const limiterResponse = await limiter.fetch("https://limiter/internal/check", {
+        method: "POST",
+        headers: { "content-type": "application/json; charset=utf-8" },
+        body: JSON.stringify({ key: parseClientIp(request) }),
+      });
+      if (limiterResponse.status === 429) {
+        return text("too many session creations", 429);
+      }
+
       const sessionId = randomSessionId();
       const id = env.SESSION.idFromName(sessionId);
       const stub = env.SESSION.get(id);
@@ -228,7 +474,7 @@ export default {
       return json({ sessionId }, 201);
     }
 
-    const wsRoute = url.pathname.match(/^\/api\/sessions\/([A-Za-z0-9]{1,64})\/ws$/);
+    const wsRoute = url.pathname.match(/^\/api\/sessions\/([A-Za-z0-9_-]{8,64})\/ws$/);
     if (request.method === "GET" && wsRoute) {
       const role = url.searchParams.get("role");
       if (role !== "host" && role !== "viewer") {
@@ -243,6 +489,7 @@ export default {
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
-    return env.ASSETS.fetch(request);
+    const assetResponse = await env.ASSETS.fetch(request);
+    return withSecurityHeaders(assetResponse);
   },
 };

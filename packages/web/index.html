@@ -4,160 +4,58 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>fied</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3CradialGradient id='s' cx='40%25' cy='35%25' r='55%25'%3E%3Cstop offset='0%25' stop-color='%237dcfff'/%3E%3Cstop offset='50%25' stop-color='%235a9ecf'/%3E%3Cstop offset='100%25' stop-color='%232a5a7a'/%3E%3C/radialGradient%3E%3CradialGradient id='g' cx='30%25' cy='25%25' r='70%25'%3E%3Cstop offset='0%25' stop-color='%23fff' stop-opacity='.25'/%3E%3Cstop offset='100%25' stop-color='%23fff' stop-opacity='0'/%3E%3C/radialGradient%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='4' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeBlend in='SourceGraphic' mode='overlay'/%3E%3C/filter%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='14' fill='url(%23s)' filter='url(%23n)'/%3E%3Ccircle cx='16' cy='16' r='14' fill='url(%23g)'/%3E%3Ccircle cx='12' cy='11' r='3' fill='%23fff' opacity='.12'/%3E%3C/svg%3E" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3CradialGradient id='s' cx='40%25' cy='35%25' r='55%25'%3E%3Cstop offset='0%25' stop-color='%237dcfff'/%3E%3Cstop offset='50%25' stop-color='%235a9ecf'/%3E%3Cstop offset='100%25' stop-color='%232a5a7a'/%3E%3C/radialGradient%3E%3CradialGradient id='g' cx='30%25' cy='25%25' r='70%25'%3E%3Cstop offset='0%25' stop-color='%23fff' stop-opacity='.25'/%3E%3Cstop offset='100%25' stop-color='%23fff' stop-opacity='0'/%3E%3C/radialGradient%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='4' seed='3' stitchTiles='stitch' result='noise'/%3E%3CfeColorMatrix type='saturate' values='0' in='noise' result='mono'/%3E%3CfeBlend in='SourceGraphic' in2='mono' mode='overlay' result='blended'/%3E%3CfeComposite in='blended' in2='SourceGraphic' operator='in'/%3E%3C/filter%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='14' fill='url(%23s)' filter='url(%23n)'/%3E%3Ccircle cx='16' cy='16' r='14' fill='url(%23g)'/%3E%3Ccircle cx='12' cy='11' r='3' fill='%23fff' opacity='.12'/%3E%3C/svg%3E" />
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600&display=swap');
-
-      *,
-      *::before,
-      *::after {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-
-      :root {
-        --bg-deep: #0f1019;
-        --bg-surface: #1a1b26;
-        --fg-primary: #c0caf5;
-        --fg-muted: #565f89;
-        --accent: #7aa2f7;
-        --accent-glow: rgba(122, 162, 247, 0.15);
-        --green: #9ece6a;
-        --red: #f7768e;
-        --border: rgba(192, 202, 245, 0.06);
-        --status-height: 32px;
-      }
-
-      html, body {
-        height: 100%;
-        width: 100%;
-        overflow: hidden;
-        background: var(--bg-deep);
-        color: var(--fg-primary);
-        font-family: 'DM Sans', sans-serif;
-      }
-
-      #app {
-        display: flex;
+      *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { height: 100%; width: 100%; overflow: hidden; background: #000; color: #c7c7c7; font-family: -apple-system, system-ui, sans-serif; }
+      #terminal-container { height: 100%; width: 100%; display: none; }
+      .xterm { height: 100%; }
+      #landing {
+        display: none;
         flex-direction: column;
-        height: 100%;
-        width: 100%;
-      }
-
-      #status-bar {
-        height: var(--status-height);
-        min-height: var(--status-height);
-        display: flex;
         align-items: center;
-        justify-content: space-between;
-        padding: 0 12px;
-        background: var(--bg-surface);
-        border-bottom: 1px solid var(--border);
-        font-size: 11px;
-        font-family: 'JetBrains Mono', monospace;
-        letter-spacing: 0.02em;
-        user-select: none;
-        z-index: 10;
+        justify-content: center;
+        height: 100%;
+        gap: 32px;
       }
-
-      #status-bar .left {
-        display: flex;
+      #landing .logo-area { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+      #landing .logo-sphere {
+        width: 72px;
+        height: 72px;
+      }
+      #landing h1 { font-size: 28px; font-weight: 600; letter-spacing: 0.04em; color: #e8e8e8; }
+      #landing p { color: #666; font-size: 14px; max-width: 360px; text-align: center; line-height: 1.5; }
+      #landing code { background: #161616; padding: 2px 7px; border-radius: 4px; font-size: 13px; color: #7dcfff; }
+      #landing .copy-block {
+        display: inline-flex;
         align-items: center;
         gap: 8px;
-      }
-
-      #status-bar .logo {
-        font-weight: 600;
-        font-size: 12px;
-        color: var(--accent);
-        letter-spacing: 0.08em;
-        text-transform: lowercase;
-      }
-
-      #status-bar .divider {
-        width: 1px;
-        height: 12px;
-        background: var(--fg-muted);
-        opacity: 0.3;
-      }
-
-      .status-dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        display: inline-block;
-        margin-right: 6px;
-        flex-shrink: 0;
-      }
-
-      .status-dot.connecting {
-        background: var(--fg-muted);
-        animation: pulse 1.5s ease-in-out infinite;
-      }
-
-      .status-dot.connected {
-        background: var(--green);
-        box-shadow: 0 0 6px rgba(158, 206, 106, 0.4);
-      }
-
-      .status-dot.disconnected {
-        background: var(--red);
-      }
-
-      @keyframes pulse {
-        0%, 100% { opacity: 0.4; }
-        50% { opacity: 1; }
-      }
-
-      #status-text {
-        color: var(--fg-muted);
-      }
-
-      #reconnect-btn {
-        display: none;
-        background: none;
-        border: 1px solid var(--fg-muted);
-        color: var(--fg-muted);
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 10px;
-        padding: 2px 8px;
-        border-radius: 3px;
+        background: #111;
+        border: 1px solid #222;
+        border-radius: 6px;
+        padding: 8px 12px;
         cursor: pointer;
-        transition: all 0.15s ease;
-        letter-spacing: 0.02em;
+        transition: border-color 0.15s;
+        user-select: none;
       }
-
-      #reconnect-btn:hover {
-        border-color: var(--accent);
-        color: var(--accent);
-        background: var(--accent-glow);
+      #landing .copy-block:hover { border-color: #444; }
+      #landing .copy-block code { background: none; padding: 0; font-size: 14px; }
+      #landing .copy-block .copy-icon { width: 16px; height: 16px; color: #555; transition: color 0.15s; flex-shrink: 0; }
+      #landing .copy-block:hover .copy-icon { color: #7dcfff; }
+      #landing .copy-block.copied .copy-icon { color: #9ece6a; }
+      #landing .links { display: flex; gap: 20px; }
+      #landing .links a {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        color: #666;
+        transition: color 0.15s, background 0.15s;
       }
-
-      #terminal-container {
-        flex: 1;
-        overflow: hidden;
-        background: var(--bg-surface);
-        position: relative;
-      }
-
-      #terminal-container::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
-        z-index: 1;
-        pointer-events: none;
-      }
-
-      .xterm {
-        padding: 8px;
-        height: 100%;
-      }
-
+      #landing .links a:hover { color: #e8e8e8; background: #161616; }
+      #landing .links a svg { width: 22px; height: 22px; fill: currentColor; }
       #error-view {
         display: none;
         flex-direction: column;
@@ -165,41 +63,52 @@
         justify-content: center;
         height: 100%;
         gap: 12px;
-        color: var(--fg-muted);
+        color: #888;
+        font-family: monospace;
         font-size: 13px;
         text-align: center;
         padding: 24px;
       }
-
-      #error-view .error-title {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 14px;
-        color: var(--red);
-        font-weight: 500;
-      }
-
-      #error-view .error-detail {
-        max-width: 420px;
-        line-height: 1.6;
-      }
+      #error-view .error-title { color: #e55; font-weight: 600; }
+      #error-view .error-detail { max-width: 420px; line-height: 1.6; }
     </style>
   </head>
   <body>
-    <div id="app">
-      <div id="status-bar">
-        <div class="left">
-          <span class="logo">fied</span>
-          <span class="divider"></span>
-          <span class="status-dot connecting" id="status-dot"></span>
-          <span id="status-text">initializing</span>
-        </div>
-        <button id="reconnect-btn">reconnect</button>
+    <div id="landing">
+      <div class="logo-area">
+        <svg class="logo-sphere" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="ls" cx="40%" cy="35%" r="55%"><stop offset="0%" stop-color="#7dcfff"/><stop offset="50%" stop-color="#5a9ecf"/><stop offset="100%" stop-color="#2a5a7a"/></radialGradient>
+            <radialGradient id="lg" cx="30%" cy="25%" r="70%"><stop offset="0%" stop-color="#fff" stop-opacity=".25"/><stop offset="100%" stop-color="#fff" stop-opacity="0"/></radialGradient>
+            <filter id="ln"><feTurbulence type="fractalNoise" baseFrequency="1.2" numOctaves="4" seed="3" stitchTiles="stitch" result="noise"/><feColorMatrix type="saturate" values="0" in="noise" result="mono"/><feBlend in="SourceGraphic" in2="mono" mode="overlay" result="blended"/><feComposite in="blended" in2="SourceGraphic" operator="in"/></filter>
+          </defs>
+          <circle cx="16" cy="16" r="14" fill="url(#ls)" filter="url(#ln)"/>
+          <circle cx="16" cy="16" r="14" fill="url(#lg)"/>
+          <circle cx="12" cy="11" r="3" fill="#fff" opacity=".12"/>
+        </svg>
+        <h1>fied</h1>
       </div>
-      <div id="terminal-container"></div>
-      <div id="error-view">
-        <div class="error-title"></div>
-        <div class="error-detail"></div>
+      <p>Share your tmux session in the browser.<br>End-to-end encrypted.</p>
+      <div class="copy-block" id="copy-cmd">
+        <code>npx fied</code>
+        <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
       </div>
+      <div class="links">
+        <a href="https://github.com/gstohl/fied" target="_blank" rel="noopener" title="GitHub">
+          <svg viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+        </a>
+        <a href="https://www.npmjs.com/package/fied" target="_blank" rel="noopener" title="npm">
+          <svg viewBox="0 0 24 24"><path d="M1.763 0C.786 0 0 .786 0 1.763v20.474C0 23.214.786 24 1.763 24h20.474c.977 0 1.763-.786 1.763-1.763V1.763C24 .786 23.214 0 22.237 0zM5.13 5.323l13.837.019-.009 13.836h-3.464l.01-10.382h-3.456L12.04 19.17H5.113z"/></svg>
+        </a>
+        <a href="https://x.com/dominikgstoehl" target="_blank" rel="noopener" title="X">
+          <svg viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+        </a>
+      </div>
+    </div>
+    <div id="terminal-container"></div>
+    <div id="error-view">
+      <div class="error-title"></div>
+      <div class="error-detail"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

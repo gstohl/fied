@@ -1,0 +1,36 @@
+name: Security Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=moderate
+
+      - name: Build crypto
+        run: npm run build -w packages/crypto
+
+      - name: Build cli
+        run: npm run build -w packages/cli
+
+      - name: Build web
+        run: npm run build -w packages/web
+
+      - name: Build relay
+        run: npm run build -w packages/relay

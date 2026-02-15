@@ -11,6 +11,13 @@ const MSG_TERMINAL_OUTPUT = 0x01;
 const MSG_TERMINAL_INPUT = 0x02;
 const MSG_RESIZE = 0x03;
 
+const RESIZE_MIN_COLS = 20;
+const RESIZE_MAX_COLS = 1000;
+const RESIZE_MIN_ROWS = 5;
+const RESIZE_MAX_ROWS = 300;
+const MAX_INVALID_RESIZE_FRAMES = 5;
+const MAX_PROTOCOL_ERRORS = 8;
+
 export type ConnectionState = "connecting" | "connected" | "disconnected";
 
 export interface ConnectionCallbacks {
@@ -28,6 +35,8 @@ export class Connection {
   private intentionalClose = false;
   private encoder = new TextEncoder();
   private decoder = new TextDecoder();
+  private invalidResizeFrames = 0;
+  private protocolErrors = 0;
 
   constructor(
     private sessionId: string,
@@ -76,7 +85,9 @@ export class Connection {
       }
     };
 
-    this.ws.onerror = () => {};
+    this.ws.onerror = (event) => {
+      console.warn("fied websocket error", event);
+    };
   }
 
   disconnect(): void {
@@ -102,6 +113,7 @@ export class Connection {
 
   async sendResize(cols: number, rows: number): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.key) return;
+    if (!isValidResize(cols, rows)) return;
 
     const payload = this.encoder.encode(JSON.stringify({ cols, rows }));
     const { iv, ciphertext } = await encrypt(this.key, payload);
@@ -124,16 +136,31 @@ export class Connection {
 
         case MSG_RESIZE: {
           const plaintext = await decrypt(this.key, frame.iv, frame.ciphertext);
-          const { cols, rows } = JSON.parse(this.decoder.decode(plaintext));
-          if (typeof cols === "number" && typeof rows === "number") {
-            this.callbacks.onResize(cols, rows);
+          const resize = parseResizePayload(this.decoder.decode(plaintext));
+          if (!resize) {
+            this.invalidResizeFrames += 1;
+            if (this.invalidResizeFrames >= MAX_INVALID_RESIZE_FRAMES) {
+              console.warn("fied invalid resize threshold reached; disconnecting");
+              this.disconnect();
+            }
+            break;
           }
+
+          this.invalidResizeFrames = 0;
+          this.callbacks.onResize(resize.cols, resize.rows);
           break;
         }
 
 
       }
-    } catch {
+    } catch (err) {
+      this.protocolErrors += 1;
+      const detail = err instanceof Error ? err.message : String(err);
+      console.warn(`fied frame handling error (${this.protocolErrors}/${MAX_PROTOCOL_ERRORS}): ${detail}`);
+      if (this.protocolErrors >= MAX_PROTOCOL_ERRORS) {
+        console.warn("fied protocol error threshold reached; disconnecting");
+        this.disconnect();
+      }
     }
   }
 
@@ -147,4 +174,30 @@ export class Connection {
 
     this.backoff = Math.min(this.backoff * 2, this.maxBackoff);
   }
+}
+
+function isValidResize(cols: number, rows: number): boolean {
+  return (
+    Number.isInteger(cols) &&
+    Number.isInteger(rows) &&
+    cols >= RESIZE_MIN_COLS &&
+    cols <= RESIZE_MAX_COLS &&
+    rows >= RESIZE_MIN_ROWS &&
+    rows <= RESIZE_MAX_ROWS
+  );
+}
+
+function parseResizePayload(payload: string): { cols: number; rows: number } | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== "object") return null;
+  const typed = parsed as { cols?: unknown; rows?: unknown };
+  if (typeof typed.cols !== "number" || typeof typed.rows !== "number") return null;
+  if (!isValidResize(typed.cols, typed.rows)) return null;
+  return { cols: typed.cols, rows: typed.rows };
 }
