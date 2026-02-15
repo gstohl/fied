@@ -36,10 +36,11 @@ export function attachSession(
   cols: number,
   rows: number
 ): IPty {
+  const { TMUX: _, TMUX_PANE: __, ...env } = process.env;
   return spawn("tmux", ["attach-session", "-t", sessionName], {
     name: "xterm-256color",
     cols,
     rows,
-    env: process.env as Record<string, string>,
+    env: env as Record<string, string>,
   });
 }
