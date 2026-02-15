@@ -6,14 +6,16 @@ import {
   encrypt,
   decrypt,
   toBase64Url,
-  MessageType,
   frameMessage,
   parseFrame,
 } from "@fied/crypto";
 import { listSessions, attachSession } from "./tmux.js";
 
 const DEFAULT_RELAY = "https://fied.app";
-const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000];
+
+const MSG_TERMINAL_OUTPUT = 0x01;
+const MSG_TERMINAL_INPUT = 0x02;
+const MSG_RESIZE = 0x03;
 
 export interface FiedOptions {
   session?: string;
@@ -117,12 +119,12 @@ async function connectToRelay(
         cols: pty.cols,
         rows: pty.rows,
       });
-      sendEncrypted(ws, key, MessageType.RESIZE, new TextEncoder().encode(resizePayload));
+      sendEncrypted(ws, key, MSG_RESIZE, new TextEncoder().encode(resizePayload));
     });
 
     pty.onData((data: string) => {
       if (ws.readyState === WebSocket.OPEN) {
-        sendEncrypted(ws, key, MessageType.TERMINAL_OUTPUT, new TextEncoder().encode(data));
+        sendEncrypted(ws, key, MSG_TERMINAL_OUTPUT, new TextEncoder().encode(data));
       }
     });
 
@@ -145,10 +147,10 @@ async function connectToRelay(
         const data = new Uint8Array(raw);
         const frame = parseFrame(data);
 
-        if (frame.type === MessageType.TERMINAL_INPUT) {
+        if (frame.type === MSG_TERMINAL_INPUT) {
           const plaintext = await decrypt(key, frame.iv, frame.ciphertext);
           pty.write(new TextDecoder().decode(plaintext));
-        } else if (frame.type === MessageType.RESIZE) {
+        } else if (frame.type === MSG_RESIZE) {
           const plaintext = await decrypt(key, frame.iv, frame.ciphertext);
           const { cols, rows } = JSON.parse(new TextDecoder().decode(plaintext));
           pty.resize(cols, rows);
@@ -189,7 +191,7 @@ async function connectToRelay(
 async function sendEncrypted(
   ws: WebSocket,
   key: CryptoKey,
-  type: MessageType,
+  type: number,
   plaintext: Uint8Array
 ): Promise<void> {
   try {
