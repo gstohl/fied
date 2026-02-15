@@ -8,5 +8,5 @@ await build({
   platform: "node",
   target: "node18",
   banner: { js: "#!/usr/bin/env node" },
-  external: ["node-pty"],
+  external: ["node-pty", "ws"],
 });
