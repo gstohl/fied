@@ -39,6 +39,8 @@ const SOCKET_BUCKET_BURST = 120;
 const SOCKET_BUCKET_REFILL_PER_SECOND = 60;
 const SESSION_CREATE_BUCKET_BURST = 20;
 const SESSION_CREATE_BUCKET_REFILL_PER_SECOND = 10 / 60;
+const RATE_LIMITER_SWEEP_INTERVAL_MS = 60_000;
+const RATE_LIMITER_STALE_MS = 10 * 60 * 1000;
 const DEFAULT_MAX_VIEWERS_PER_SESSION = 5;
 
 const CONTENT_SECURITY_POLICY = [
@@ -430,6 +432,11 @@ export class Session extends DurableObject<Env> {
       this.socketRate.delete(socket);
     }
 
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+
     this.createdAt = null;
     this.lastActivityAt = null;
     this.lastPersistedAt = 0;
@@ -473,6 +480,7 @@ type IpBucketState = {
 
 export class RateLimiter extends DurableObject {
   private buckets = new Map<string, IpBucketState>();
+  private lastSweepAt = 0;
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -490,6 +498,8 @@ export class RateLimiter extends DurableObject {
   }
 
   private consumeToken(key: string, now: number): boolean {
+    this.sweepStale(now);
+
     let state = this.buckets.get(key);
     if (!state) {
       state = { tokens: SESSION_CREATE_BUCKET_BURST, lastRefillAt: now };
@@ -509,6 +519,17 @@ export class RateLimiter extends DurableObject {
 
     state.tokens -= 1;
     return true;
+  }
+
+  private sweepStale(now: number): void {
+    if (now - this.lastSweepAt < RATE_LIMITER_SWEEP_INTERVAL_MS) return;
+    this.lastSweepAt = now;
+
+    for (const [key, state] of this.buckets) {
+      if (now - state.lastRefillAt > RATE_LIMITER_STALE_MS) {
+        this.buckets.delete(key);
+      }
+    }
   }
 }
 
