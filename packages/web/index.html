@@ -71,6 +71,32 @@
       }
       #error-view .error-title { color: #e55; font-weight: 600; }
       #error-view .error-detail { max-width: 420px; line-height: 1.6; }
+      #connection-status {
+        display: none;
+        position: fixed;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 50;
+        padding: 5px 14px;
+        border-radius: 999px;
+        font: 500 12px/1 -apple-system, system-ui, sans-serif;
+        letter-spacing: 0.02em;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        transition: opacity 0.3s;
+      }
+      #connection-status.visible { display: block; }
+      #connection-status.connecting {
+        background: rgba(30, 30, 10, 0.88);
+        border: 1px solid #5a4a1a;
+        color: #d4aa40;
+      }
+      #connection-status.disconnected {
+        background: rgba(30, 10, 10, 0.88);
+        border: 1px solid #5a1a1a;
+        color: #e55;
+      }
       #mobile-keybar { display: none; }
       #mobile-keybar-toggle { display: none; }
       @media (pointer: coarse) {
@@ -180,6 +206,7 @@
       </div>
     </div>
     <div id="terminal-container"></div>
+    <div id="connection-status" aria-live="polite"></div>
     <button id="mobile-keybar-toggle" type="button" aria-pressed="false" aria-label="Toggle mobile keybar">
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M1.5 12s4-6.5 10.5-6.5S22.5 12 22.5 12 18.5 18.5 12 18.5 1.5 12 1.5 12z"/>
@@ -198,7 +225,7 @@
         <button type="button" data-action="toggle-extra">…</button>
       </div>
       <div class="mobile-row extra" hidden>
-        <button type="button" data-input="\u001b">Alt</button>
+        <button type="button" data-action="alt" aria-pressed="false">Alt</button>
         <button type="button" data-input="\u001b[5~">PgUp</button>
         <button type="button" data-input="\u001b[6~">PgDn</button>
         <button type="button" data-input="|">|</button>

@@ -8,7 +8,8 @@ const errorView = document.getElementById("error-view")!;
 const copyCommandButton = document.getElementById("copy-cmd") as HTMLDivElement | null;
 const mobileKeybar = document.getElementById("mobile-keybar") as HTMLDivElement | null;
 const mobileKeybarToggle = document.getElementById("mobile-keybar-toggle") as HTMLButtonElement | null;
-const outputDecoder = new TextDecoder();
+const connectionStatus = document.getElementById("connection-status")!;
+const outputDecoder = new TextDecoder("utf-8");
 
 function showError(title: string, detail: string): void {
   errorView.style.display = "flex";
@@ -77,11 +78,13 @@ async function main(): Promise<void> {
     requestAnimationFrame(() => {
       applyViewportHeight();
       fitAddon.fit();
-      const dims = fitAddon.proposeDimensions();
-      if (dims) {
-        connection.sendResize(dims.cols, dims.rows);
-      }
     });
+  };
+
+  let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+  const debouncedSyncViewport = () => {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(syncViewport, 150);
   };
 
   const connection = new Connection(route.sessionId, route.keyBase64Url, {
@@ -91,18 +94,24 @@ async function main(): Promise<void> {
       requestAnimationFrame(() => fitAddon.fit());
     },
     onStateChange: (state) => {
+      connectionStatus.className = "";
       if (state === "connected") {
+        connectionStatus.textContent = "";
         syncViewport();
-        setTimeout(syncViewport, 120);
-        setTimeout(syncViewport, 500);
+      } else if (state === "connecting") {
+        connectionStatus.textContent = "connecting\u2026";
+        connectionStatus.className = "visible connecting";
+      } else {
+        connectionStatus.textContent = "disconnected \u2014 reconnecting\u2026";
+        connectionStatus.className = "visible disconnected";
       }
     },
   });
 
   window.addEventListener("load", syncViewport, { once: true });
-  window.addEventListener("resize", syncViewport);
-  window.visualViewport?.addEventListener("resize", syncViewport);
-  window.visualViewport?.addEventListener("scroll", syncViewport);
+  window.addEventListener("resize", debouncedSyncViewport);
+  window.visualViewport?.addEventListener("resize", debouncedSyncViewport);
+  window.visualViewport?.addEventListener("scroll", debouncedSyncViewport);
 
   transformTerminalInput = setupMobileKeybar(terminalContainer, terminal, (input) => connection.sendInput(input));
 
@@ -113,10 +122,8 @@ async function main(): Promise<void> {
 main();
 
 function normalizeTerminalOutput(data: Uint8Array): string {
-  let text = outputDecoder.decode(data);
+  let text = outputDecoder.decode(data, { stream: true });
   text = text.replace(/\u23FA/g, "\u23FA\uFE0E");
-  const mouseModeOn = new RegExp(`${String.fromCharCode(27)}\\[\\?(1000|1002|1003|1005|1006|1015|1007)h`, "g");
-  text = text.replace(mouseModeOn, "");
   return text;
 }
 
@@ -133,8 +140,10 @@ function setupMobileKeybar(
 
   const extraRow = mobileKeybar.querySelector(".mobile-row.extra") as HTMLDivElement | null;
   const ctrlButton = mobileKeybar.querySelector('[data-action="ctrl"]') as HTMLButtonElement | null;
+  const altButton = mobileKeybar.querySelector('[data-action="alt"]') as HTMLButtonElement | null;
 
   let ctrlArmed = false;
+  let altArmed = false;
   let keybarEnabled = false;
 
   const setCtrlArmed = (armed: boolean) => {
@@ -142,6 +151,14 @@ function setupMobileKeybar(
     if (ctrlButton) {
       ctrlButton.classList.toggle("active", armed);
       ctrlButton.setAttribute("aria-pressed", armed ? "true" : "false");
+    }
+  };
+
+  const setAltArmed = (armed: boolean) => {
+    altArmed = armed;
+    if (altButton) {
+      altButton.classList.toggle("active", armed);
+      altButton.setAttribute("aria-pressed", armed ? "true" : "false");
     }
   };
 
@@ -196,15 +213,28 @@ function setupMobileKeybar(
     terminal.focus();
   };
 
+  const applyAlt = (input: string): string => {
+    return `\u001b${input}`;
+  };
+
   const transformInput = (rawInput: string): string => {
-    if (!ctrlArmed) {
-      return rawInput;
+    let result = rawInput;
+
+    if (ctrlArmed) {
+      result = applyCtrl(result);
+      setCtrlArmed(false);
     }
 
-    const payload = applyCtrl(rawInput);
-    setCtrlArmed(false);
-    updateVisibility();
-    return payload;
+    if (altArmed) {
+      result = applyAlt(result);
+      setAltArmed(false);
+    }
+
+    if (rawInput !== result) {
+      updateVisibility();
+    }
+
+    return result;
   };
 
   const buttons = Array.from(mobileKeybar.querySelectorAll("button"));
@@ -217,6 +247,12 @@ function setupMobileKeybar(
       const action = button.getAttribute("data-action");
       if (action === "ctrl") {
         setCtrlArmed(!ctrlArmed);
+        terminal.focus();
+        updateVisibility();
+        return;
+      }
+      if (action === "alt") {
+        setAltArmed(!altArmed);
         terminal.focus();
         updateVisibility();
         return;
@@ -241,6 +277,7 @@ function setupMobileKeybar(
     keybarEnabled = !keybarEnabled;
     if (!keybarEnabled) {
       setCtrlArmed(false);
+      setAltArmed(false);
       if (extraRow) {
         extraRow.hidden = true;
       }

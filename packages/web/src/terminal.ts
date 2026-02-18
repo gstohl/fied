@@ -1,5 +1,6 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 
 export interface TerminalHandle {
   terminal: Terminal;
@@ -36,6 +37,17 @@ export function createTerminal(
   terminal.loadAddon(fitAddon);
 
   terminal.open(container);
+
+  try {
+    const webglAddon = new WebglAddon();
+    webglAddon.onContextLoss(() => {
+      webglAddon.dispose();
+    });
+    terminal.loadAddon(webglAddon);
+  } catch {
+    // WebGL unavailable — falls back to canvas renderer
+  }
+
   fitAddon.fit();
 
   terminal.onData(onData);
