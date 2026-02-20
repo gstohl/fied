@@ -4,6 +4,52 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>fied</title>
+    <meta name="description" content="Share your tmux session in the browser with end-to-end encryption. One command: npx fied." />
+    <meta name="keywords" content="tmux, terminal sharing, terminal, browser, end-to-end encryption, E2E, CLI, encrypted, WebSocket, xterm.js" />
+    <meta name="author" content="Dominik Gstoettner" />
+    <link rel="canonical" href="https://fied.app/" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="fied — encrypted terminal sharing" />
+    <meta property="og:description" content="Share your tmux session in the browser with end-to-end encryption. One command: npx fied." />
+    <meta property="og:url" content="https://fied.app/" />
+    <meta property="og:site_name" content="fied" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="fied — encrypted terminal sharing" />
+    <meta name="twitter:description" content="Share your tmux session in the browser with end-to-end encryption. One command: npx fied." />
+    <meta name="twitter:creator" content="@dominikgstoehl" />
+
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "fied",
+      "description": "Share your tmux session in the browser with end-to-end encryption. One command: npx fied.",
+      "url": "https://fied.app",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Linux, macOS",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "author": {
+        "@type": "Person",
+        "name": "Dominik Gstoettner",
+        "url": "https://x.com/dominikgstoehl"
+      },
+      "softwareRequirements": "Node.js 18+, tmux",
+      "license": "https://opensource.org/licenses/MIT",
+      "codeRepository": "https://github.com/gstohl/fied",
+      "installUrl": "https://www.npmjs.com/package/fied",
+      "keywords": ["tmux", "terminal sharing", "end-to-end encryption", "CLI", "WebSocket", "xterm.js"]
+    }
+    </script>
+
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3CradialGradient id='s' cx='40%25' cy='35%25' r='55%25'%3E%3Cstop offset='0%25' stop-color='%237dcfff'/%3E%3Cstop offset='50%25' stop-color='%235a9ecf'/%3E%3Cstop offset='100%25' stop-color='%232a5a7a'/%3E%3C/radialGradient%3E%3CradialGradient id='g' cx='30%25' cy='25%25' r='70%25'%3E%3Cstop offset='0%25' stop-color='%23fff' stop-opacity='.25'/%3E%3Cstop offset='100%25' stop-color='%23fff' stop-opacity='0'/%3E%3C/radialGradient%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='4' seed='3' stitchTiles='stitch' result='noise'/%3E%3CfeColorMatrix type='saturate' values='0' in='noise' result='mono'/%3E%3CfeBlend in='SourceGraphic' in2='mono' mode='overlay' result='blended'/%3E%3CfeComposite in='blended' in2='SourceGraphic' operator='in'/%3E%3C/filter%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='14' fill='url(%23s)' filter='url(%23n)'/%3E%3Ccircle cx='16' cy='16' r='14' fill='url(%23g)'/%3E%3Ccircle cx='12' cy='11' r='3' fill='%23fff' opacity='.12'/%3E%3C/svg%3E" />
     <style>
       *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -96,6 +142,70 @@
         background: rgba(30, 10, 10, 0.88);
         border: 1px solid #5a1a1a;
         color: #e55;
+      }
+      #search-bar {
+        display: none;
+        position: fixed;
+        top: calc(10px + env(safe-area-inset-top));
+        right: 52px;
+        z-index: 45;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 8px;
+        border-radius: 8px;
+        border: 1px solid #2a2a2a;
+        background: rgba(12, 12, 12, 0.92);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        font: 12px/1 -apple-system, system-ui, sans-serif;
+        color: #c7c7c7;
+      }
+      #search-bar.visible { display: inline-flex; }
+      #search-bar input {
+        width: 160px;
+        height: 24px;
+        padding: 0 8px;
+        border: 1px solid #333;
+        border-radius: 5px;
+        background: #0a0a0a;
+        color: #e8e8e8;
+        font: 13px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        outline: none;
+        caret-color: #7dcfff;
+      }
+      #search-bar input:focus { border-color: #7dcfff; }
+      #search-bar input::placeholder { color: #555; }
+      #search-bar .search-count {
+        font-variant-numeric: tabular-nums;
+        color: #666;
+        min-width: 52px;
+        text-align: center;
+        white-space: nowrap;
+        font-size: 11px;
+      }
+      #search-bar .search-count.has-results { color: #7dcfff; }
+      #search-bar button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border: 1px solid #2a2a2a;
+        border-radius: 5px;
+        background: transparent;
+        color: #999;
+        cursor: pointer;
+        padding: 0;
+        flex-shrink: 0;
+      }
+      #search-bar button:hover { color: #e8e8e8; border-color: #444; }
+      #search-bar button:active { background: #1a1a1a; }
+      #search-bar button svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      @media (pointer: coarse) {
+        #search-bar { right: 52px; }
+      }
+      @media not (pointer: coarse) {
+        #search-bar { right: 10px; }
       }
       #mobile-keybar { display: none; }
       #mobile-keybar-toggle { display: none; }
@@ -230,6 +340,13 @@
         <button type="button" data-input="\u001b[6~">PgDn</button>
         <button type="button" data-input="|">|</button>
       </div>
+    </div>
+    <div id="search-bar">
+      <input id="search-input" type="text" placeholder="Find…" spellcheck="false" autocomplete="off" />
+      <span class="search-count" id="search-count"></span>
+      <button id="search-prev" type="button" aria-label="Previous match"><svg viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg></button>
+      <button id="search-next" type="button" aria-label="Next match"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></button>
+      <button id="search-close" type="button" aria-label="Close search"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div id="error-view">
       <div class="error-title"></div>

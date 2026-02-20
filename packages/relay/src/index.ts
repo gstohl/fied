@@ -7,7 +7,7 @@ interface Env {
   MAX_VIEWERS_PER_SESSION?: string;
 }
 
-type Role = "host" | "viewer";
+type Role = "host" | "viewer" | "readonly";
 
 type SocketMeta = {
   role: Role;
@@ -170,7 +170,7 @@ export class Session extends DurableObject<Env> {
       }
 
       const role = url.searchParams.get("role");
-      if (role !== "host" && role !== "viewer") {
+      if (role !== "host" && role !== "viewer" && role !== "readonly") {
         return text("invalid role", 400);
       }
 
@@ -182,8 +182,11 @@ export class Session extends DurableObject<Env> {
       if (role === "host" && sockets.some((socket) => this.getSocketMeta(socket)?.role === "host")) {
         return text("host already connected", 409);
       }
-      if (role === "viewer") {
-        const viewerCount = sockets.filter((socket) => this.getSocketMeta(socket)?.role === "viewer").length;
+      if (role === "viewer" || role === "readonly") {
+        const viewerCount = sockets.filter((socket) => {
+          const socketRole = this.getSocketMeta(socket)?.role;
+          return socketRole === "viewer" || socketRole === "readonly";
+        }).length;
         if (viewerCount >= this.maxViewersPerSession) {
           return text("viewer limit reached", 429);
         }
@@ -200,7 +203,7 @@ export class Session extends DurableObject<Env> {
       this.socketRate.set(server, { tokens: SOCKET_BUCKET_BURST, lastRefillAt: Date.now() });
       this.touchActivity(Date.now());
 
-      if (role === "viewer") {
+      if (role === "viewer" || role === "readonly") {
         this.replayRecentFrames(server);
 
         const sockets = this.ctx.getWebSockets();
@@ -260,11 +263,15 @@ export class Session extends DurableObject<Env> {
 
       for (const viewer of this.ctx.getWebSockets()) {
         const viewerMeta = this.getSocketMeta(viewer);
-        if (viewerMeta?.role === "viewer") {
+        if (viewerMeta?.role === "viewer" || viewerMeta?.role === "readonly") {
           viewer.send(message);
         }
       }
       this.touchActivity(now);
+      return;
+    }
+
+    if (meta.role === "readonly") {
       return;
     }
 
@@ -292,7 +299,8 @@ export class Session extends DurableObject<Env> {
       this.clearReplayBuffer();
 
       for (const socket of this.ctx.getWebSockets()) {
-        if (socket !== ws && this.getSocketMeta(socket)?.role === "viewer") {
+        const socketRole = this.getSocketMeta(socket)?.role;
+        if (socket !== ws && (socketRole === "viewer" || socketRole === "readonly")) {
           socket.close(1012, "host disconnected");
         }
       }
@@ -357,7 +365,10 @@ export class Session extends DurableObject<Env> {
     }
 
     const typedMeta = meta as Partial<SocketMeta>;
-    if ((typedMeta.role !== "host" && typedMeta.role !== "viewer") || typeof typedMeta.id !== "string") {
+    if (
+      (typedMeta.role !== "host" && typedMeta.role !== "viewer" && typedMeta.role !== "readonly") ||
+      typeof typedMeta.id !== "string"
+    ) {
       return null;
     }
 
@@ -559,7 +570,7 @@ export default {
     const wsRoute = url.pathname.match(/^\/api\/sessions\/([A-Za-z0-9_-]{8,64})\/ws$/);
     if (request.method === "GET" && wsRoute) {
       const role = url.searchParams.get("role");
-      if (role !== "host" && role !== "viewer") {
+      if (role !== "host" && role !== "viewer" && role !== "readonly") {
         return text("invalid role", 400);
       }
 

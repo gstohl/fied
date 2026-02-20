@@ -1,10 +1,12 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { SearchAddon } from "@xterm/addon-search";
 
 export interface TerminalHandle {
   terminal: Terminal;
   fitAddon: FitAddon;
+  searchAddon: SearchAddon;
   dispose: () => void;
 }
 
@@ -35,6 +37,9 @@ export function createTerminal(
 
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
+
+  const searchAddon = new SearchAddon();
+  terminal.loadAddon(searchAddon);
 
   terminal.open(container);
 
@@ -71,5 +76,5 @@ export function createTerminal(
     terminal.dispose();
   };
 
-  return { terminal, fitAddon, dispose };
+  return { terminal, fitAddon, searchAddon, dispose };
 }

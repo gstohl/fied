@@ -1,4 +1,6 @@
 import "@xterm/xterm/css/xterm.css";
+import type { Terminal } from "@xterm/xterm";
+import type { SearchAddon } from "@xterm/addon-search";
 import { createTerminal } from "./terminal";
 import { Connection } from "./connection";
 
@@ -19,18 +21,23 @@ function showError(title: string, detail: string): void {
 
 type Route =
   | { type: "landing" }
-  | { type: "session"; sessionId: string; keyBase64Url: string }
+  | { type: "session"; sessionId: string; keyBase64Url: string; readonly: boolean }
   | { type: "invalid" };
 
 function parseRoute(): Route {
   const isSessionPath = location.pathname.match(/^\/s\//);
   if (!isSessionPath) return { type: "landing" };
 
-  const pathMatch = location.pathname.match(/^\/s\/([a-zA-Z0-9_-]+)/);
+  const pathMatch = location.pathname.match(/^\/s\/([a-zA-Z0-9_-]+)(?:\/(v))?\/?$/);
   const hash = location.hash.slice(1);
   if (!pathMatch || !hash) return { type: "invalid" };
 
-  return { type: "session", sessionId: pathMatch[1], keyBase64Url: hash };
+  return {
+    type: "session",
+    sessionId: pathMatch[1],
+    keyBase64Url: hash,
+    readonly: pathMatch[2] === "v",
+  };
 }
 
 async function main(): Promise<void> {
@@ -63,11 +70,17 @@ async function main(): Promise<void> {
 
   let transformTerminalInput = (input: string) => input;
 
-  const { terminal, fitAddon } = createTerminal(
+  const { terminal, fitAddon, searchAddon } = createTerminal(
     terminalContainer,
-    (data) => connection.sendInput(transformTerminalInput(data)),
+    route.readonly ? () => {} : (data) => connection.sendInput(transformTerminalInput(data)),
     (cols, rows) => connection.sendResize(cols, rows),
   );
+
+  if (route.readonly) {
+    terminal.options.cursorBlink = false;
+    terminal.options.cursorStyle = "underline";
+    terminal.options.disableStdin = true;
+  }
 
   const applyViewportHeight = () => {
     const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
@@ -87,35 +100,50 @@ async function main(): Promise<void> {
     resizeTimer = setTimeout(syncViewport, 150);
   };
 
-  const connection = new Connection(route.sessionId, route.keyBase64Url, {
-    onTerminalOutput: (data) => terminal.write(normalizeTerminalOutput(data)),
-    onResize: (cols, rows) => {
-      terminal.resize(cols, rows);
-      requestAnimationFrame(() => fitAddon.fit());
+  const connection = new Connection(
+    route.sessionId,
+    route.keyBase64Url,
+    {
+      onTerminalOutput: (data) => terminal.write(normalizeTerminalOutput(data)),
+      onResize: (cols, rows) => {
+        terminal.resize(cols, rows);
+        requestAnimationFrame(() => fitAddon.fit());
+      },
+      onStateChange: (state) => {
+        connectionStatus.className = "";
+        if (state === "connected") {
+          connectionStatus.textContent = "";
+          syncViewport();
+        } else if (state === "connecting") {
+          connectionStatus.textContent = "connecting\u2026";
+          connectionStatus.className = "visible connecting";
+        } else {
+          connectionStatus.textContent = "disconnected \u2014 reconnecting\u2026";
+          connectionStatus.className = "visible disconnected";
+        }
+      },
     },
-    onStateChange: (state) => {
-      connectionStatus.className = "";
-      if (state === "connected") {
-        connectionStatus.textContent = "";
-        syncViewport();
-      } else if (state === "connecting") {
-        connectionStatus.textContent = "connecting\u2026";
-        connectionStatus.className = "visible connecting";
-      } else {
-        connectionStatus.textContent = "disconnected \u2014 reconnecting\u2026";
-        connectionStatus.className = "visible disconnected";
-      }
-    },
-  });
+    route.readonly,
+  );
 
   window.addEventListener("load", syncViewport, { once: true });
   window.addEventListener("resize", debouncedSyncViewport);
   window.visualViewport?.addEventListener("resize", debouncedSyncViewport);
   window.visualViewport?.addEventListener("scroll", debouncedSyncViewport);
 
-  transformTerminalInput = setupMobileKeybar(terminalContainer, terminal, (input) => connection.sendInput(input));
+  if (route.readonly) {
+    if (mobileKeybarToggle) {
+      mobileKeybarToggle.style.display = "none";
+    }
+  } else {
+    transformTerminalInput = setupMobileKeybar(terminalContainer, terminal, (input) => connection.sendInput(input));
+  }
 
-  terminal.focus();
+  setupSearch(searchAddon, terminal);
+
+  if (!route.readonly) {
+    terminal.focus();
+  }
   await connection.connect();
 }
 
@@ -298,4 +326,90 @@ function setupMobileKeybar(
 
   updateVisibility();
   return transformInput;
+}
+
+function setupSearch(searchAddon: SearchAddon, terminal: Terminal): void {
+  const bar = document.getElementById("search-bar")!;
+  const input = document.getElementById("search-input") as HTMLInputElement;
+  const count = document.getElementById("search-count")!;
+  const prevBtn = document.getElementById("search-prev")!;
+  const nextBtn = document.getElementById("search-next")!;
+  const closeBtn = document.getElementById("search-close")!;
+
+  const searchOpts = {
+    incremental: true,
+    decorations: {
+      matchBackground: "#3a3a00",
+      activeMatchBackground: "#7a5a00",
+      matchOverviewRuler: "#7dcfff",
+      activeMatchColorOverviewRuler: "#7dcfff",
+    },
+  };
+
+  const openSearch = () => {
+    bar.classList.add("visible");
+    input.focus();
+    input.select();
+  };
+
+  const closeSearch = () => {
+    bar.classList.remove("visible");
+    input.value = "";
+    count.textContent = "";
+    count.classList.remove("has-results");
+    searchAddon.clearDecorations();
+    terminal.focus();
+  };
+
+  searchAddon.onDidChangeResults(({ resultIndex, resultCount }) => {
+    if (resultCount === 0) {
+      count.textContent = input.value ? "0 results" : "";
+      count.classList.remove("has-results");
+    } else {
+      count.textContent = `${resultIndex + 1} of ${resultCount}`;
+      count.classList.add("has-results");
+    }
+  });
+
+  input.addEventListener("input", () => {
+    if (input.value) {
+      searchAddon.findNext(input.value, searchOpts);
+    } else {
+      searchAddon.clearDecorations();
+      count.textContent = "";
+      count.classList.remove("has-results");
+    }
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && e.shiftKey) {
+      e.preventDefault();
+      if (input.value) searchAddon.findPrevious(input.value, searchOpts);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (input.value) searchAddon.findNext(input.value, searchOpts);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      closeSearch();
+    }
+  });
+
+  prevBtn.addEventListener("click", () => {
+    if (input.value) searchAddon.findPrevious(input.value, searchOpts);
+    input.focus();
+  });
+
+  nextBtn.addEventListener("click", () => {
+    if (input.value) searchAddon.findNext(input.value, searchOpts);
+    input.focus();
+  });
+
+  closeBtn.addEventListener("click", closeSearch);
+
+  document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+      e.preventDefault();
+      openSearch();
+    }
+  });
 }

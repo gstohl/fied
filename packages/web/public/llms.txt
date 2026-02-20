@@ -1,0 +1,44 @@
+# fied
+
+> Share your tmux session in the browser with end-to-end encryption. One command: `npx fied`.
+
+fied attaches to a running tmux session, generates a 256-bit AES encryption key, and connects to a relay server. Viewers open a link in their browser to see and interact with the terminal in real time. The encryption key is placed in the URL fragment (#), which is never sent to the server — the relay forwards opaque encrypted bytes and cannot read the terminal content.
+
+- Zero config: just run `npx fied` with a running tmux session
+- End-to-end encrypted: AES-256-GCM with random IVs per message
+- Interactive: viewers can type, not just watch
+- View-only links: share read-only access separately
+- Background mode: share persists after closing the terminal
+- Up to 5 concurrent viewers per session
+- Auto-reconnect on network interruptions
+- Self-hostable: the relay is a Cloudflare Worker
+
+## Usage
+
+- [GitHub README](https://github.com/gstohl/fied#readme): Installation, usage examples, and self-hosting instructions
+- [npm package](https://www.npmjs.com/package/fied): Package details and version history
+
+## Architecture
+
+fied is a monorepo with four packages:
+
+- `packages/crypto`: AES-256-GCM encryption, key generation, wire protocol framing
+- `packages/cli`: CLI tool — attaches to tmux via node-pty, encrypts I/O, connects to relay
+- `packages/relay`: Cloudflare Worker + Durable Objects — routes encrypted WebSocket messages
+- `packages/web`: Browser viewer — xterm.js terminal, decrypts with key from URL fragment
+
+## Security
+
+- AES-256-GCM with random IV per message
+- Key generated on the host machine, placed in URL fragment
+- The URL fragment (#) is never sent to the server (RFC 3986 §3.5)
+- The relay forwards opaque binary blobs — it cannot read terminal content
+- All traffic over WSS (TLS)
+- Rate-limited session creation
+- Replay protection via per-message nonces
+
+## Links
+
+- [GitHub repository](https://github.com/gstohl/fied)
+- [npm package](https://www.npmjs.com/package/fied)
+- [Security details](https://github.com/gstohl/fied/blob/main/SECURITY.md)

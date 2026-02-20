@@ -41,12 +41,16 @@ export class Connection {
   private decoder = new TextDecoder();
   private invalidResizeFrames = 0;
   private protocolErrors = 0;
+  private readonlyViewer = false;
 
   constructor(
     private sessionId: string,
     private keyBase64Url: string,
     private callbacks: ConnectionCallbacks,
-  ) {}
+    readonly = false,
+  ) {
+    this.readonlyViewer = readonly;
+  }
 
   async connect(): Promise<void> {
     this.intentionalClose = false;
@@ -59,7 +63,8 @@ export class Connection {
     this.callbacks.onStateChange("connecting");
 
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${proto}//${location.host}/api/sessions/${this.sessionId}/ws?role=viewer`;
+    const role = this.readonlyViewer ? "readonly" : "viewer";
+    const url = `${proto}//${location.host}/api/sessions/${this.sessionId}/ws?role=${role}`;
 
     this.ws = new WebSocket(url);
     this.ws.binaryType = "arraybuffer";
@@ -107,6 +112,7 @@ export class Connection {
   }
 
   async sendInput(data: string): Promise<void> {
+    if (this.readonlyViewer) return;
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.key) return;
 
     const payload = this.encoder.encode(JSON.stringify({ nonce: crypto.randomUUID(), data }));
@@ -116,6 +122,7 @@ export class Connection {
   }
 
   async sendResize(cols: number, rows: number): Promise<void> {
+    if (this.readonlyViewer) return;
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.key) return;
     if (!isValidResize(cols, rows)) return;
 

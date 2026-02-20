@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import { type IPty } from "node-pty";
+import QRCode from "qrcode";
 import {
   generateKey,
   fromBase64Url,
@@ -249,18 +250,20 @@ class RelayBridge {
       }
 
       const shareUrl = new URL(`s/${this.sessionId}`, this.relayTarget.httpBase);
-      const url = `${shareUrl.toString()}#${this.keyFragment}`;
+      const interactiveUrl = `${shareUrl.toString()}#${this.keyFragment}`;
+      const readonlyShareUrl = new URL(`${shareUrl.pathname.replace(/\/$/, "")}/v`, shareUrl);
+      const readonlyUrl = `${readonlyShareUrl.toString()}#${this.keyFragment}`;
 
       if (!this.silent) {
-        console.log(`  \x1b[1mShare this link:\x1b[0m`);
-        console.log(`  \x1b[4m\x1b[36m${url}\x1b[0m`);
+        await printShareLinkWithQr("interactive", interactiveUrl);
+        await printShareLinkWithQr("view-only", readonlyUrl);
         console.log("");
         console.log("  \x1b[2mThe encryption key is in the URL fragment (#) — the server never sees it.\x1b[0m");
         console.log("  \x1b[2mPress Ctrl+C to stop sharing.\x1b[0m");
         console.log("");
       }
 
-      void this.onUrl?.(url);
+      void this.onUrl?.(interactiveUrl);
     }
 
     const wsUrl = new URL(`api/sessions/${this.sessionId}/ws`, this.relayTarget.wsBase);
@@ -443,4 +446,28 @@ function parseResizePayload(payload: string): { cols: number; rows: number } | n
   if (rows < RESIZE_MIN_ROWS || rows > RESIZE_MAX_ROWS) return null;
 
   return { cols, rows };
+}
+
+async function printShareLinkWithQr(label: string, url: string): Promise<void> {
+  console.log(`  \x1b[1mShare (${label}):\x1b[0m`);
+  console.log(`  \x1b[4m\x1b[36m${url}\x1b[0m`);
+  console.log("");
+
+  try {
+    const qr = await QRCode.toString(url, {
+      type: "terminal",
+      small: true,
+      errorCorrectionLevel: "L",
+    });
+    const lines = qr
+      .split("\n")
+      .filter((line: string) => line.length > 0)
+      .map((line: string) => `  ${line}`);
+    console.log(lines.join("\n"));
+    console.log("");
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error(`  \x1b[33mQR generation failed:\x1b[0m ${detail}`);
+    console.log("");
+  }
 }
