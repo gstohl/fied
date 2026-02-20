@@ -73,7 +73,6 @@ async function main(): Promise<void> {
   let session: string | undefined;
   let allowInsecureRelay = false;
   let showReadonlyLink = false;
-  let showReadonlyLinkExplicit = false;
 
   for (let i = 0; i < args.length; i++) {
     if ((args[i] === "--session" || args[i] === "-s") && args[i + 1]) {
@@ -84,7 +83,6 @@ async function main(): Promise<void> {
       allowInsecureRelay = true;
     } else if (args[i] === "--view-only") {
       showReadonlyLink = true;
-      showReadonlyLinkExplicit = true;
     } else if (!args[i].startsWith("-")) {
       continue;
     } else {
@@ -154,16 +152,22 @@ async function main(): Promise<void> {
     throw new Error("No tmux session selected");
   }
 
-  if (!showReadonlyLinkExplicit && process.stdin.isTTY && process.stderr.isTTY) {
-    showReadonlyLink = await confirm("Enable view-only share link?");
-  }
-
   await share({
     session,
     relay,
     allowInsecureRelay,
     showReadonlyLink,
     onShareUrl: async (url) => {
+      if (!showReadonlyLink && process.stdin.isTTY && process.stderr.isTTY) {
+        const wantReadonly = await confirm("Also share a view-only link?");
+        if (wantReadonly) {
+          const readonlyUrl = deriveReadonlyUrl(url);
+          console.log(`  \x1b[1mShare (view-only):\x1b[0m`);
+          console.log(`  \x1b[4m\x1b[36m${readonlyUrl}\x1b[0m`);
+          console.log("");
+        }
+      }
+
       const background = await confirm("Run in background?");
       if (!background) {
         return;
@@ -220,6 +224,16 @@ function spawnBackground(options: {
   });
   child.unref();
   return child;
+}
+
+function deriveReadonlyUrl(interactiveUrl: string): string {
+  const parsed = new URL(interactiveUrl);
+  parsed.pathname = parsed.pathname.replace(/\/$/, "") + "/v";
+  const params = new URLSearchParams(parsed.hash.slice(1));
+  const readKey = params.get("r");
+  if (!readKey) throw new Error("No read key in URL");
+  parsed.hash = `r=${encodeURIComponent(readKey)}`;
+  return parsed.toString();
 }
 
 function parseShareUrl(url: string): { sessionId: string; readKeyBase64Url: string; writeKeyBase64Url: string } {
