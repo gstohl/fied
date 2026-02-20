@@ -45,7 +45,10 @@ export interface FiedOptions {
   background?: boolean;
   allowInsecureRelay?: boolean;
   sessionId?: string;
+  readKeyBase64Url?: string;
+  writeKeyBase64Url?: string;
   keyBase64Url?: string;
+  showReadonlyLink?: boolean;
   onShareUrl?: (url: string) => void | Promise<void>;
 }
 
@@ -81,9 +84,22 @@ export async function share(options: FiedOptions): Promise<void> {
   const cols = options.cols ?? process.stdout.columns ?? 80;
   const rows = options.rows ?? process.stdout.rows ?? 24;
 
-  const rawKey = options.keyBase64Url ? fromBase64Url(options.keyBase64Url) : await generateKey();
-  const cryptoKey = await importKey(rawKey);
-  const keyFragment = options.keyBase64Url ?? toBase64Url(rawKey);
+  const legacyKey = options.keyBase64Url;
+  const readKeyRaw = options.readKeyBase64Url
+    ? fromBase64Url(options.readKeyBase64Url)
+    : legacyKey
+      ? fromBase64Url(legacyKey)
+      : await generateKey();
+  const writeKeyRaw = options.writeKeyBase64Url
+    ? fromBase64Url(options.writeKeyBase64Url)
+    : legacyKey
+      ? fromBase64Url(legacyKey)
+      : await generateKey();
+
+  const readKey = await importKey(readKeyRaw);
+  const writeKey = await importKey(writeKeyRaw);
+  const readKeyFragment = options.readKeyBase64Url ?? legacyKey ?? toBase64Url(readKeyRaw);
+  const writeKeyFragment = options.writeKeyBase64Url ?? legacyKey ?? toBase64Url(writeKeyRaw);
 
   const pty = attachSession(targetSession, cols, rows);
 
@@ -96,7 +112,17 @@ export async function share(options: FiedOptions): Promise<void> {
     console.log("");
   }
 
-  const bridge = new RelayBridge(relayTarget, cryptoKey, keyFragment, pty, options.background, options.sessionId);
+  const bridge = new RelayBridge(
+    relayTarget,
+    readKey,
+    writeKey,
+    readKeyFragment,
+    writeKeyFragment,
+    pty,
+    options.background,
+    options.showReadonlyLink,
+    options.sessionId,
+  );
 
   const onUrl = (url: string) => {
     if (options.background) {
@@ -188,7 +214,10 @@ async function createSession(relayHttpBase: URL): Promise<string> {
   if (!res.ok) {
     throw new Error(`Failed to create session: ${res.status} ${res.statusText}`);
   }
-  const data = (await res.json()) as { sessionId: string };
+  const data = (await res.json()) as { sessionId?: unknown };
+  if (typeof data.sessionId !== "string") {
+    throw new Error("Invalid session creation response");
+  }
   return data.sessionId;
 }
 
@@ -215,10 +244,13 @@ class RelayBridge {
 
   constructor(
     private relayTarget: RelayTarget,
-    private key: CryptoKey,
-    private keyFragment: string,
+    private readKey: CryptoKey,
+    private writeKey: CryptoKey,
+    private readKeyFragment: string,
+    private writeKeyFragment: string,
     private pty: IPty,
     private silent = false,
+    private showReadonlyLink = false,
     sessionId?: string,
   ) {
     this.sessionId = sessionId ?? null;
@@ -250,13 +282,15 @@ class RelayBridge {
       }
 
       const shareUrl = new URL(`s/${this.sessionId}`, this.relayTarget.httpBase);
-      const interactiveUrl = `${shareUrl.toString()}#${this.keyFragment}`;
+      const interactiveUrl = `${shareUrl.toString()}#r=${encodeURIComponent(this.readKeyFragment)}&w=${encodeURIComponent(this.writeKeyFragment)}`;
       const readonlyShareUrl = new URL(`${shareUrl.pathname.replace(/\/$/, "")}/v`, shareUrl);
-      const readonlyUrl = `${readonlyShareUrl.toString()}#${this.keyFragment}`;
+      const readonlyUrl = `${readonlyShareUrl.toString()}#r=${encodeURIComponent(this.readKeyFragment)}`;
 
       if (!this.silent) {
         await printShareLinkWithQr("interactive", interactiveUrl);
-        await printShareLinkWithQr("view-only", readonlyUrl);
+        if (this.showReadonlyLink) {
+          await printShareLinkWithQr("view-only", readonlyUrl, false);
+        }
         console.log("");
         console.log("  \x1b[2mThe encryption key is in the URL fragment (#) — the server never sees it.\x1b[0m");
         console.log("  \x1b[2mPress Ctrl+C to stop sharing.\x1b[0m");
@@ -302,7 +336,7 @@ class RelayBridge {
         const frame = parseFrame(data);
 
         if (frame.type === MSG_TERMINAL_INPUT) {
-          const plaintext = await decrypt(this.key, frame.iv, frame.ciphertext, typeAAD(frame.type));
+          const plaintext = await decrypt(this.writeKey, frame.iv, frame.ciphertext, typeAAD(frame.type));
           const input = parseInputPayload(this.decoder.decode(plaintext));
           if (!input || this.isReplayNonce(input.nonce)) {
             this.invalidInputFrames += 1;
@@ -316,7 +350,7 @@ class RelayBridge {
           this.rememberInputNonce(input.nonce);
           this.pty.write(input.data);
         } else if (frame.type === MSG_RESIZE) {
-          const plaintext = await decrypt(this.key, frame.iv, frame.ciphertext, typeAAD(frame.type));
+          const plaintext = await decrypt(this.writeKey, frame.iv, frame.ciphertext, typeAAD(frame.type));
           const resize = parseResizePayload(this.decoder.decode(plaintext));
           if (!resize) {
             this.invalidResizeFrames += 1;
@@ -382,7 +416,8 @@ class RelayBridge {
   private async sendEncrypted(type: number, plaintext: Uint8Array): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     try {
-      const { iv, ciphertext } = await encrypt(this.key, plaintext, typeAAD(type));
+      const key = type === MSG_TERMINAL_OUTPUT ? this.readKey : this.writeKey;
+      const { iv, ciphertext } = await encrypt(key, plaintext, typeAAD(type));
       const frame = frameMessage(type, iv, ciphertext);
       this.ws.send(frame);
     } catch (err) {
@@ -448,10 +483,14 @@ function parseResizePayload(payload: string): { cols: number; rows: number } | n
   return { cols, rows };
 }
 
-async function printShareLinkWithQr(label: string, url: string): Promise<void> {
+async function printShareLinkWithQr(label: string, url: string, includeQr = true): Promise<void> {
   console.log(`  \x1b[1mShare (${label}):\x1b[0m`);
   console.log(`  \x1b[4m\x1b[36m${url}\x1b[0m`);
   console.log("");
+
+  if (!includeQr) {
+    return;
+  }
 
   try {
     const qr = await QRCode.toString(url, {

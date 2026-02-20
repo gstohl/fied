@@ -21,7 +21,7 @@ function showError(title: string, detail: string): void {
 
 type Route =
   | { type: "landing" }
-  | { type: "session"; sessionId: string; keyBase64Url: string; readonly: boolean }
+  | { type: "session"; sessionId: string; readKeyBase64Url: string; writeKeyBase64Url: string | null; readonly: boolean }
   | { type: "invalid" };
 
 function parseRoute(): Route {
@@ -32,10 +32,27 @@ function parseRoute(): Route {
   const hash = location.hash.slice(1);
   if (!pathMatch || !hash) return { type: "invalid" };
 
+  let readKeyBase64Url = "";
+  let writeKeyBase64Url: string | null = null;
+  if (hash.includes("=") || hash.includes("&")) {
+    const hashParams = new URLSearchParams(hash);
+    const read = hashParams.get("r");
+    const write = hashParams.get("w");
+    if (read) {
+      readKeyBase64Url = read;
+      writeKeyBase64Url = write;
+    }
+  }
+  if (!readKeyBase64Url) {
+    readKeyBase64Url = hash;
+    writeKeyBase64Url = hash;
+  }
+
   return {
     type: "session",
     sessionId: pathMatch[1],
-    keyBase64Url: hash,
+    readKeyBase64Url,
+    writeKeyBase64Url,
     readonly: pathMatch[2] === "v",
   };
 }
@@ -102,7 +119,8 @@ async function main(): Promise<void> {
 
   const connection = new Connection(
     route.sessionId,
-    route.keyBase64Url,
+    route.readKeyBase64Url,
+    route.readonly ? null : route.writeKeyBase64Url,
     {
       onTerminalOutput: (data) => terminal.write(normalizeTerminalOutput(data)),
       onResize: (cols, rows) => {

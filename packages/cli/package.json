@@ -1,11 +1,9 @@
 {
   "name": "fied",
-  "version": "0.2.7",
+  "version": "0.2.10",
   "description": "Share your tmux session in the browser with end-to-end encryption",
   "type": "module",
-  "bin": {
-    "fied": "./dist/bin.js"
-  },
+  "bin": "dist/bin.js",
   "files": [
     "dist/bin.js",
     "README.md"

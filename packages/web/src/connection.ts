@@ -32,7 +32,8 @@ export interface ConnectionCallbacks {
 
 export class Connection {
   private ws: WebSocket | null = null;
-  private key: CryptoKey | null = null;
+  private readKey: CryptoKey | null = null;
+  private writeKey: CryptoKey | null = null;
   private backoff = 1000;
   private maxBackoff = 30000;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -45,7 +46,8 @@ export class Connection {
 
   constructor(
     private sessionId: string,
-    private keyBase64Url: string,
+    private readKeyBase64Url: string,
+    private writeKeyBase64Url: string | null,
     private callbacks: ConnectionCallbacks,
     readonly = false,
   ) {
@@ -55,9 +57,13 @@ export class Connection {
   async connect(): Promise<void> {
     this.intentionalClose = false;
 
-    if (!this.key) {
-      const rawKey = fromBase64Url(this.keyBase64Url);
-      this.key = await importKey(rawKey);
+    if (!this.readKey) {
+      const rawReadKey = fromBase64Url(this.readKeyBase64Url);
+      this.readKey = await importKey(rawReadKey);
+    }
+    if (!this.writeKey && this.writeKeyBase64Url) {
+      const rawWriteKey = fromBase64Url(this.writeKeyBase64Url);
+      this.writeKey = await importKey(rawWriteKey);
     }
 
     this.callbacks.onStateChange("connecting");
@@ -113,40 +119,40 @@ export class Connection {
 
   async sendInput(data: string): Promise<void> {
     if (this.readonlyViewer) return;
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.key) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.writeKey) return;
 
     const payload = this.encoder.encode(JSON.stringify({ nonce: crypto.randomUUID(), data }));
-    const { iv, ciphertext } = await encrypt(this.key, payload, typeAAD(MSG_TERMINAL_INPUT));
+    const { iv, ciphertext } = await encrypt(this.writeKey, payload, typeAAD(MSG_TERMINAL_INPUT));
     const frame = frameMessage(MSG_TERMINAL_INPUT, iv, ciphertext);
     this.ws.send(frame.buffer);
   }
 
   async sendResize(cols: number, rows: number): Promise<void> {
     if (this.readonlyViewer) return;
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.key) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.writeKey) return;
     if (!isValidResize(cols, rows)) return;
 
     const payload = this.encoder.encode(JSON.stringify({ nonce: crypto.randomUUID(), cols, rows }));
-    const { iv, ciphertext } = await encrypt(this.key, payload, typeAAD(MSG_RESIZE));
+    const { iv, ciphertext } = await encrypt(this.writeKey, payload, typeAAD(MSG_RESIZE));
     const frame = frameMessage(MSG_RESIZE, iv, ciphertext);
     this.ws.send(frame.buffer);
   }
 
   private async handleMessage(data: unknown): Promise<void> {
-    if (!(data instanceof ArrayBuffer) || !this.key) return;
+    if (!(data instanceof ArrayBuffer) || !this.readKey) return;
 
     try {
       const frame = parseFrame(new Uint8Array(data));
 
       switch (frame.type) {
         case MSG_TERMINAL_OUTPUT: {
-          const plaintext = await decrypt(this.key, frame.iv, frame.ciphertext, typeAAD(frame.type));
+          const plaintext = await decrypt(this.readKey, frame.iv, frame.ciphertext, typeAAD(frame.type));
           this.callbacks.onTerminalOutput(plaintext);
           break;
         }
 
         case MSG_RESIZE: {
-          const plaintext = await decrypt(this.key, frame.iv, frame.ciphertext, typeAAD(frame.type));
+          const plaintext = await decrypt(this.readKey, frame.iv, frame.ciphertext, typeAAD(frame.type));
           const resize = parseResizePayload(this.decoder.decode(plaintext));
           if (!resize) {
             this.invalidResizeFrames += 1;

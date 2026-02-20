@@ -17,12 +17,14 @@ if (args.includes("--help") || args.includes("-h")) {
   \x1b[1mOptions:\x1b[0m
     --session, -s <name>   tmux session to share (auto-detected if only one)
     --relay <url>          relay server URL (default: https://fied.app)
+    --view-only            print a separate view-only share link
     --allow-insecure-relay allow http://localhost relay (dev only)
     --help, -h             show this help
 
   \x1b[1mExamples:\x1b[0m
     npx fied                       share the only tmux session
     npx fied -s mysession          share a specific session
+    npx fied --view-only           include a view-only link
     npx fied --relay http://localhost:8787   use a local relay
 `);
   process.exit(0);
@@ -34,7 +36,10 @@ if (args.includes("--__daemon")) {
     relay?: string;
     allowInsecureRelay?: boolean;
     sessionId?: string;
+    readKeyBase64Url?: string;
+    writeKeyBase64Url?: string;
     keyBase64Url?: string;
+    showReadonlyLink?: boolean;
   } = {};
   for (let i = 0; i < args.length; i++) {
     if ((args[i] === "--session" || args[i] === "-s") && args[i + 1]) {
@@ -43,8 +48,14 @@ if (args.includes("--__daemon")) {
       options.relay = args[++i];
     } else if (args[i] === "--allow-insecure-relay") {
       options.allowInsecureRelay = true;
+    } else if (args[i] === "--view-only") {
+      options.showReadonlyLink = true;
     } else if (args[i] === "--__session-id" && args[i + 1]) {
       options.sessionId = args[++i];
+    } else if (args[i] === "--__read-key" && args[i + 1]) {
+      options.readKeyBase64Url = args[++i];
+    } else if (args[i] === "--__write-key" && args[i + 1]) {
+      options.writeKeyBase64Url = args[++i];
     } else if (args[i] === "--__key" && args[i + 1]) {
       options.keyBase64Url = args[++i];
     }
@@ -61,6 +72,8 @@ async function main(): Promise<void> {
   let relay: string | undefined;
   let session: string | undefined;
   let allowInsecureRelay = false;
+  let showReadonlyLink = false;
+  let showReadonlyLinkExplicit = false;
 
   for (let i = 0; i < args.length; i++) {
     if ((args[i] === "--session" || args[i] === "-s") && args[i + 1]) {
@@ -69,6 +82,9 @@ async function main(): Promise<void> {
       relay = args[++i];
     } else if (args[i] === "--allow-insecure-relay") {
       allowInsecureRelay = true;
+    } else if (args[i] === "--view-only") {
+      showReadonlyLink = true;
+      showReadonlyLinkExplicit = true;
     } else if (!args[i].startsWith("-")) {
       continue;
     } else {
@@ -138,10 +154,15 @@ async function main(): Promise<void> {
     throw new Error("No tmux session selected");
   }
 
+  if (!showReadonlyLinkExplicit && process.stdin.isTTY && process.stderr.isTTY) {
+    showReadonlyLink = await confirm("Enable view-only share link?");
+  }
+
   await share({
     session,
     relay,
     allowInsecureRelay,
+    showReadonlyLink,
     onShareUrl: async (url) => {
       const background = await confirm("Run in background?");
       if (!background) {
@@ -154,7 +175,8 @@ async function main(): Promise<void> {
         relay,
         allowInsecureRelay,
         sessionId: parsed.sessionId,
-        keyBase64Url: parsed.keyBase64Url,
+        readKeyBase64Url: parsed.readKeyBase64Url,
+        writeKeyBase64Url: parsed.writeKeyBase64Url,
       });
 
       console.error("");
@@ -174,7 +196,8 @@ function spawnBackground(options: {
   relay?: string;
   allowInsecureRelay: boolean;
   sessionId: string;
-  keyBase64Url: string;
+  readKeyBase64Url: string;
+  writeKeyBase64Url: string;
 }) {
   const binPath = fileURLToPath(import.meta.url);
   const childArgs = [
@@ -183,8 +206,10 @@ function spawnBackground(options: {
     options.session,
     "--__session-id",
     options.sessionId,
-    "--__key",
-    options.keyBase64Url,
+    "--__read-key",
+    options.readKeyBase64Url,
+    "--__write-key",
+    options.writeKeyBase64Url,
   ];
   if (options.relay) childArgs.push("--relay", options.relay);
   if (options.allowInsecureRelay) childArgs.push("--allow-insecure-relay");
@@ -197,16 +222,36 @@ function spawnBackground(options: {
   return child;
 }
 
-function parseShareUrl(url: string): { sessionId: string; keyBase64Url: string } {
+function parseShareUrl(url: string): { sessionId: string; readKeyBase64Url: string; writeKeyBase64Url: string } {
   const parsed = new URL(url);
   const match = parsed.pathname.match(/^\/s\/([A-Za-z0-9_-]{8,64})$/);
   if (!match || !parsed.hash) {
     throw new Error("Invalid share URL");
   }
 
+  const hashRaw = parsed.hash.slice(1);
+  let readKeyBase64Url = "";
+  let writeKeyBase64Url = "";
+
+  if (hashRaw.includes("=") || hashRaw.includes("&")) {
+    const params = new URLSearchParams(hashRaw);
+    const read = params.get("r");
+    const write = params.get("w");
+    if (read && write) {
+      readKeyBase64Url = read;
+      writeKeyBase64Url = write;
+    }
+  }
+
+  if (!readKeyBase64Url || !writeKeyBase64Url) {
+    readKeyBase64Url = hashRaw;
+    writeKeyBase64Url = hashRaw;
+  }
+
   return {
     sessionId: match[1],
-    keyBase64Url: parsed.hash.slice(1),
+    readKeyBase64Url,
+    writeKeyBase64Url,
   };
 }
 
